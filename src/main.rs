@@ -49,7 +49,7 @@ fn frequency_to_note_octave(freq: f64) -> String {
 }
 
 fn analyze_pitch_autocorrelation(buffer: &[f32], sample_rate: f64) -> Option<f64> {
-    const RMS_THRESHOLD: f32 = 0.002;
+    const RMS_THRESHOLD: f32 = 0.01;
     const MIN_FREQ: f64 = 50.0;
     const MAX_FREQ: f64 = 1000.0;
 
@@ -174,8 +174,9 @@ impl Component for PitchAnalyzer {
                     analyser.get_float_time_domain_data(&mut buffer[..]);
                     let sample_rate = 44100.0;
 
+                    self.elapsed_time += 0.1;
+
                     if let Some(freq) = analyze_pitch_autocorrelation(&buffer, sample_rate) {
-                        // 평균 주파수
                         if self.prev_freqs.len() >= 5 {
                             self.prev_freqs.pop_front();
                         }
@@ -187,16 +188,18 @@ impl Component for PitchAnalyzer {
                         let note = frequency_to_note_octave(average_freq);
                         self.pitch = format!("🎶 현재 음: {} ({:.2} Hz)", note, average_freq);
 
-                        self.elapsed_time += 0.1;
                         self.history.push_back((self.elapsed_time, average_freq));
-                        if self.history.len() > 100 {
-                            self.history.pop_front();
-                        }
-
-                        // 캔버스 렌더링 제거 (PitchPlot이 대신 그림)
                     } else {
                         self.pitch = "🔇 너무 작은 소리 (무시됨)".to_string();
                         self.prev_freqs.clear();
+                        self.current_freq = 0.0;
+
+                        // 💡 frequency가 없을 때도 0.0을 기록
+                        self.history.push_back((self.elapsed_time, 0.0));
+                    }
+
+                    if self.history.len() > 100 {
+                        self.history.pop_front();
                     }
 
                     true
@@ -222,13 +225,12 @@ impl Component for PitchAnalyzer {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        info!("{:?}", self.current_freq);
         html! {
             <div>
                 <h1>{ "🎵 실시간 피치 분석기" }</h1>
                 <button onclick={ctx.link().callback(|_| Msg::StartAudio)}>{ "🎤 마이크 시작" }</button>
                 <p>{ &self.pitch }</p>
-                <PitchPlot current_freq={self.current_freq} history={self.history.clone()} />
+                <PitchPlot current_freq={self.current_freq} history={VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>())} />
             </div>
         }
     }

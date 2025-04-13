@@ -1,3 +1,4 @@
+use log::info;
 use plotters::prelude::*;
 use plotters_canvas::CanvasBackend;
 use std::collections::VecDeque;
@@ -12,11 +13,14 @@ pub struct PitchPlotProps {
 #[function_component(PitchPlot)]
 pub fn pitch_plot(props: &PitchPlotProps) -> Html {
     let canvas_ref = use_node_ref();
+    let last_center_midi = use_state(|| 69); // MIDI 69 (A4)를 기본값으로 설정
 
     {
         let canvas_ref = canvas_ref.clone();
         let history = props.history.clone();
         let current_freq = props.current_freq;
+        let last_center_midi_handle = last_center_midi.clone();
+        info!("current_freq: {:?}", current_freq);
 
         use_effect_with((history.clone(), current_freq), move |_| {
             if let Some(canvas) = canvas_ref.cast::<web_sys::HtmlCanvasElement>() {
@@ -36,9 +40,14 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     (history_duration - window_duration, history_duration)
                 };
 
-                // MIDI 중심을 기준으로 위아래 몇 반음 표시x_min할지
-                let center_midi = midi_from_freq(current_freq);
-                let midi_range = 3;
+                let center_midi = if current_freq <= 0.0 {
+                    *last_center_midi_handle // 기존 값 사용
+                } else {
+                    let new_midi = midi_from_freq(current_freq);
+                    last_center_midi_handle.set(new_midi); // 새 값 저장
+                    new_midi
+                };
+                let midi_range = 5;
 
                 // checked_sub()을 사용하여 underflow 방지
                 let min_midi = center_midi
@@ -64,20 +73,41 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 chart
                     .configure_mesh()
                     .y_labels((max_midi - min_midi + 1) as usize)
+                    .y_max_light_lines(0)
+                    .x_max_light_lines(0)
                     .y_label_formatter(&|midi_f| note_name_from_midi(*midi_f as i32))
                     .x_desc("Time (s)")
                     .y_desc("Pitch")
                     .draw()
                     .unwrap();
 
-                // 주파수 이력을 MIDI로 변환해 그리기
-                let series: Vec<(f64, f64)> = history
-                    .iter()
-                    .filter(|(t, _)| *t >= x_min && *t <= x_max)
-                    .map(|(t, freq)| (*t, midi_float_from_freq(*freq)))
-                    .collect();
+                // 여러 LineSeries를 연결되지 않도록 그리기
+                let mut segment: Vec<(f64, f64)> = vec![];
 
-                chart.draw_series(LineSeries::new(series, &RED)).unwrap();
+                for (t, freq) in history.iter() {
+                    let midi = midi_float_from_freq(*freq);
+
+                    if *freq == 0.0
+                        || *t < x_min
+                        || *t > x_max
+                        || midi < min_midi as f64
+                        || midi > max_midi as f64
+                    {
+                        if segment.len() > 1 {
+                            chart
+                                .draw_series(LineSeries::new(segment.clone(), &RED))
+                                .unwrap();
+                        }
+                        segment.clear(); // 선을 끊음
+                    } else {
+                        segment.push((*t, midi));
+                    }
+                }
+
+                // 마지막 세그먼트 그리기
+                if segment.len() > 1 {
+                    chart.draw_series(LineSeries::new(segment, &RED)).unwrap();
+                }
             }
 
             || ()
