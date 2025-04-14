@@ -198,10 +198,6 @@ impl Component for PitchAnalyzer {
                         self.history.push_back((self.elapsed_time, 0.0));
                     }
 
-                    if self.history.len() > 100 {
-                        self.history.pop_front();
-                    }
-
                     true
                 } else {
                     false
