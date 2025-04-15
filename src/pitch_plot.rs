@@ -209,7 +209,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             last_center_midi_handle.set(midi_from_freq(current_freq));
                             // MIDI 값 업데이트 (참조용)
                         }
-                        current_freq
+                        freq_from_midi(*last_center_midi_handle)
                     };
 
                     // Y축 오프셋 적용 (Hz 단위)
@@ -222,7 +222,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     };
 
                     // 주파수 범위 계산 (옥타브 단위로 설정)
-                    let freq_range_factor = 2.0; // 중심 주파수의 몇 배까지 표시할지 (1.5 = ±반옥타브)
+                    let freq_range_factor = 1.5; // 중심 주파수의 몇 배까지 표시할지 (1.5 = ±반옥타브)
 
                     let min_freq = adjusted_center_freq / freq_range_factor;
                     let max_freq = adjusted_center_freq * freq_range_factor;
@@ -242,24 +242,50 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .build_cartesian_2d(x_min..x_max, min_log..max_log) // 로그 스케일 범위 사용
                         .unwrap();
 
-                    // Y축 라벨 설정 - MIDI 노트 값으로 표시
-                    // 표시할 MIDI 노트 범위 계산
-                    let midi_steps = (max_midi - min_midi + 1).max(1).min(12) as usize; // 최소 1개, 최대 12개
+                    // 라벨과 보조선 위치 설정
+                    let mut y_labels: Vec<(f64, String)> = Vec::new();
+                    let mut grid_lines: Vec<f64> = Vec::new();
 
+                    for midi in min_midi..=max_midi {
+                        if midi != min_midi && midi != max_midi {
+                            let freq = freq_from_midi(midi);
+                            let log_freq = freq.log10();
+                            let name = note_name_from_midi(midi);
+                            y_labels.push((log_freq, name));
+                            grid_lines.push(log_freq);
+                        }
+                    }
+
+                    // 메쉬 설정 (y 라벨은 비활성화)
                     chart
                         .configure_mesh()
-                        .y_labels(midi_steps)
-                        .y_max_light_lines(0)
-                        .x_max_light_lines(5)
-                        .y_label_formatter(&|log_freq| {
-                            let freq = 10f64.powf(*log_freq);
-                            let midi = midi_from_freq(freq);
-                            note_name_from_midi(midi)
-                        })
                         .x_desc("Time (s)")
                         .y_desc("Frequency (Hz)")
+                        .x_labels(5)
+                        .y_labels(0)
+                        .y_label_formatter(&|_| String::new())
                         .draw()
                         .unwrap();
+
+                    // 직접 y축 라벨과 가로선 그리기
+                    for (log_freq, label) in y_labels.iter() {
+                        // y축 라벨 텍스트
+                        chart
+                            .draw_series(std::iter::once(Text::new(
+                                label.clone(),
+                                (x_min, *log_freq + 0.007),
+                                ("sans-serif", 15).into_font(),
+                            )))
+                            .unwrap();
+
+                        // 가로선 추가
+                        chart
+                            .draw_series(std::iter::once(PathElement::new(
+                                vec![(x_min, *log_freq), (x_max, *log_freq)],
+                                ShapeStyle::from(&RGBColor(200, 200, 200)).stroke_width(1), // 연한 회색 실선
+                            )))
+                            .unwrap();
+                    }
 
                     // 여러 LineSeries를 연결하여 그리기
                     let mut segments: Vec<Vec<(f64, f64)>> = Vec::new();
