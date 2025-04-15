@@ -261,30 +261,151 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .draw()
                         .unwrap();
 
-                    // 여러 LineSeries를 연결되지 않도록 그리기
-                    let mut segment: Vec<(f64, f64)> = vec![];
+                    // 여러 LineSeries를 연결하여 그리기
+                    let mut segments: Vec<Vec<(f64, f64)>> = Vec::new();
+                    let mut current_segment: Vec<(f64, f64)> = Vec::new();
+                    let mut last_point: Option<(f64, f64)> = None;
 
-                    for (t, freq) in history.iter() {
-                        if *freq == 0.0
-                            || *t < x_min
-                            || *t > x_max
-                            || *freq < min_freq
-                            || *freq > max_freq
-                        {
-                            if segment.len() > 1 {
-                                chart
-                                    .draw_series(LineSeries::new(segment.clone(), &RED))
-                                    .unwrap();
-                            }
-                            segment.clear(); // 선을 끊음
+                    // 선 자르기(clipping) 함수
+                    fn clip_line_to_y_range(
+                        p1: (f64, f64),
+                        p2: (f64, f64),
+                        y_min: f64,
+                        y_max: f64,
+                    ) -> Option<Vec<(f64, f64)>> {
+                        // p1과 p2가 모두 범위 밖에 있고 같은 방향이면 그리지 않음
+                        if (p1.1 < y_min && p2.1 < y_min) || (p1.1 > y_max && p2.1 > y_max) {
+                            return None;
+                        }
+
+                        let mut result = Vec::new();
+
+                        // 양 끝점이 모두 범위 안에 있으면 그대로 반환
+                        if p1.1 >= y_min && p1.1 <= y_max && p2.1 >= y_min && p2.1 <= y_max {
+                            result.push(p1);
+                            result.push(p2);
+                            return Some(result);
+                        }
+
+                        // 선이 Y축 하한선과 교차하는 지점 계산
+                        if (p1.1 < y_min && p2.1 >= y_min) || (p1.1 >= y_min && p2.1 < y_min) {
+                            let t = (y_min - p1.1) / (p2.1 - p1.1);
+                            let x = p1.0 + t * (p2.0 - p1.0);
+                            result.push((x, y_min));
+                        }
+
+                        // 선이 Y축 상한선과 교차하는 지점 계산
+                        if (p1.1 > y_max && p2.1 <= y_max) || (p1.1 <= y_max && p2.1 > y_max) {
+                            let t = (y_max - p1.1) / (p2.1 - p1.1);
+                            let x = p1.0 + t * (p2.0 - p1.0);
+                            result.push((x, y_max));
+                        }
+
+                        // 범위 내에 있는 점 추가
+                        if p1.1 >= y_min && p1.1 <= y_max {
+                            result.push(p1);
+                        }
+                        if p2.1 >= y_min && p2.1 <= y_max {
+                            result.push(p2);
+                        }
+
+                        // 결과가 비어있으면 None 반환
+                        if result.is_empty() {
+                            None
                         } else {
-                            segment.push((*t, freq.log10())); // 로그 변환 적용
+                            // x 좌표로 정렬하여 올바른 순서 보장
+                            result.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                            Some(result)
                         }
                     }
 
-                    // 마지막 세그먼트 그리기
-                    if segment.len() > 1 {
-                        chart.draw_series(LineSeries::new(segment, &RED)).unwrap();
+                    for (t, freq) in history.iter() {
+                        if *t < x_min || *t > x_max {
+                            // 시간 범위 밖이면 현재 세그먼트 종료
+                            if !current_segment.is_empty() {
+                                segments.push(current_segment.clone());
+                                current_segment = Vec::new();
+                            }
+                            last_point = None;
+                            continue;
+                        }
+
+                        if *freq == 0.0 {
+                            // 주파수가 0이면 현재 세그먼트 종료
+                            if !current_segment.is_empty() {
+                                segments.push(current_segment.clone());
+                                current_segment = Vec::new();
+                            }
+                            last_point = None;
+                            continue;
+                        }
+
+                        let log_freq = freq.log10();
+                        let current_point = (*t, log_freq);
+
+                        // 이전 점과 현재 점을 연결
+                        if let Some(prev_point) = last_point {
+                            // 둘 중 하나 이상이 범위를 벗어난 경우 선 자르기 적용
+                            if log_freq < min_log
+                                || log_freq > max_log
+                                || prev_point.1 < min_log
+                                || prev_point.1 > max_log
+                            {
+                                if let Some(clipped_points) = clip_line_to_y_range(
+                                    prev_point,
+                                    current_point,
+                                    min_log,
+                                    max_log,
+                                ) {
+                                    // 잘린 선분이 있으면 추가
+                                    if clipped_points.len() >= 2 {
+                                        // 현재 세그먼트가 비어있지 않고 첫 점이 이전 세그먼트의 마지막 점과 다르면 새 세그먼트 시작
+                                        if !current_segment.is_empty()
+                                            && (current_segment.last().unwrap().0
+                                                != clipped_points[0].0
+                                                || current_segment.last().unwrap().1
+                                                    != clipped_points[0].1)
+                                        {
+                                            segments.push(current_segment.clone());
+                                            current_segment = Vec::new();
+                                        }
+
+                                        for p in clipped_points {
+                                            current_segment.push(p);
+                                        }
+                                    }
+                                } else {
+                                    // 잘린 선분이 없으면 현재 세그먼트 종료
+                                    if !current_segment.is_empty() {
+                                        segments.push(current_segment.clone());
+                                        current_segment = Vec::new();
+                                    }
+                                }
+                            } else {
+                                // 두 점 모두 범위 내에 있는 경우
+                                if current_segment.is_empty() {
+                                    current_segment.push(prev_point);
+                                }
+                                current_segment.push(current_point);
+                            }
+                        } else if log_freq >= min_log && log_freq <= max_log {
+                            // 첫 점이고 범위 내에 있으면 세그먼트 시작
+                            current_segment.push(current_point);
+                        }
+
+                        last_point = Some(current_point);
+                    }
+
+                    // 마지막 세그먼트 추가
+                    if !current_segment.is_empty() {
+                        segments.push(current_segment);
+                    }
+
+                    // 모든 세그먼트 그리기
+                    for segment in segments {
+                        if segment.len() >= 2 {
+                            chart.draw_series(LineSeries::new(segment, &RED)).unwrap();
+                        }
                     }
 
                     // 현재 모드 표시 (드래그 모드 또는 자동 모드)
@@ -293,22 +414,22 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         chart
                             .draw_series(std::iter::once(Text::new(
                                 "Drag Mode (Double-click to reset)",
-                                (x_min + 0.5, max_freq.log10() - 0.05),
+                                (x_min + 0.5, max_log - 0.05),
                                 &style,
                             )))
                             .unwrap();
 
                         // 고정된 시간 범위 정보 표시
-                        if let Some((min, max)) = *fixed_time_range {
-                            let time_info = format!("Time: {:.1}s - {:.1}s", min, max);
-                            chart
-                                .draw_series(std::iter::once(Text::new(
-                                    time_info,
-                                    (x_min + 0.5, max_midi as f64 - 1.0),
-                                    &style,
-                                )))
-                                .unwrap();
-                        }
+                        // if let Some((min, max)) = *fixed_time_range {
+                        //     let time_info = format!("Time: {:.1}s - {:.1}s", min, max);
+                        //     chart
+                        //         .draw_series(std::iter::once(Text::new(
+                        //             time_info,
+                        //             (x_min + 0.5, max_log - 0.15),
+                        //             &style,
+                        //         )))
+                        //         .unwrap();
+                        // }
                     }
                 }
 
