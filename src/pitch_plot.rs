@@ -237,7 +237,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     // Chart 만들기: y축은 주파수(Hz) 값을 사용
                     let mut chart = ChartBuilder::on(&root)
                         .margin(10)
-                        .set_label_area_size(LabelAreaPosition::Left, 50)
+                        .set_label_area_size(LabelAreaPosition::Left, 60)
                         .set_label_area_size(LabelAreaPosition::Bottom, 40)
                         .build_cartesian_2d(x_min..x_max, min_log..max_log) // 로그 스케일 범위 사용
                         .unwrap();
@@ -269,15 +269,6 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                     // 직접 y축 라벨과 가로선 그리기
                     for (log_freq, label) in y_labels.iter() {
-                        // y축 라벨 텍스트
-                        chart
-                            .draw_series(std::iter::once(Text::new(
-                                label.clone(),
-                                (x_min, *log_freq + 0.007),
-                                ("sans-serif", 15).into_font(),
-                            )))
-                            .unwrap();
-
                         // 가로선 추가
                         chart
                             .draw_series(std::iter::once(PathElement::new(
@@ -285,6 +276,44 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                                 ShapeStyle::from(&RGBColor(200, 200, 200)).stroke_width(1), // 연한 회색 실선
                             )))
                             .unwrap();
+
+                        // Y축 라벨을 차트 왼쪽 영역에 그리기
+                        // 좌표 변환 직접 계산: 차트 왼쪽 영역에 라벨 배치
+                        let style = TextStyle::from(("sans-serif", 15).into_font());
+
+                        // 로그 주파수 값을 정규화하여 Y 좌표로 변환 (0.0 ~ 1.0 범위로)
+                        let normalized_y = (max_log - *log_freq) / (max_log - min_log);
+
+                        // 차트 영역 상단 및 하단 여백 계산 (차트 영역 기준)
+                        let chart_top_margin = 10i32; // 차트 상단 여백 (명시적으로 i32로 지정)
+                        let chart_bottom_margin = 40i32; // 차트 하단 여백 (x축 라벨 포함)
+
+                        // 차트 내부 영역 높이
+                        let chart_inner_height =
+                            height as i32 - chart_top_margin - chart_bottom_margin;
+
+                        // 정규화된 값을 픽셀 Y 좌표로 변환 (차트 영역 내에서)
+                        let pixel_y =
+                            (normalized_y * chart_inner_height as f64) as i32 + chart_top_margin;
+
+                        // 텍스트가 정확히 가로선 중앙에 위치하도록 조정
+                        // 폰트 크기의 절반을 기본값으로 설정하고, 위치에 따라 점진적으로 조정
+                        let font_size = 15.0;
+
+                        // 위치에 따른 보정 계수 계산 (위쪽은 작게, 아래쪽은 크게)
+                        // normalized_y는 0.0(위)에서 1.0(아래)의 값을 가짐
+                        let position_factor = 1.0 + normalized_y * 1.2; // 0.7에서 1.4까지 변화
+
+                        let text_vertical_center_offset =
+                            (font_size * position_factor / 2.0) as i32;
+
+                        // 차트 왼쪽 영역에 텍스트 그리기
+                        root.draw_text(
+                            &label,
+                            &style,
+                            (40, pixel_y - text_vertical_center_offset), // 수직 및 수평 위치 조정
+                        )
+                        .unwrap();
                     }
 
                     // 여러 LineSeries를 연결하여 그리기
