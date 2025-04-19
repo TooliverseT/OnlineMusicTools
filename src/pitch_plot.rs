@@ -2,6 +2,7 @@ use js_sys::Date;
 use log::info;
 use plotters::prelude::*;
 use plotters_canvas::CanvasBackend;
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::f64::consts::LOG10_E;
 use wasm_bindgen::prelude::*;
@@ -12,7 +13,7 @@ use yew::prelude::*;
 #[derive(Properties, PartialEq)]
 pub struct PitchPlotProps {
     pub current_freq: f64,
-    pub history: VecDeque<(f64, f64)>, // (timestamp, frequency)
+    pub history: VecDeque<(f64, Vec<(f64, f32)>)>, // (timestamp, [(frequency, amplitude)])
 }
 
 #[function_component(PitchPlot)]
@@ -424,150 +425,80 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .unwrap();
                     }
 
-                    // 여러 LineSeries를 연결하여 그리기
-                    let mut segments: Vec<Vec<(f64, f64)>> = Vec::new();
-                    let mut current_segment: Vec<(f64, f64)> = Vec::new();
-                    let mut last_point: Option<(f64, f64)> = None;
+                    // 모든 시간대에 대해 점 그리기 및 각 시간대의 최대 진폭 찾기
+                    let mut time_grouped_points: BTreeMap<i64, Vec<(f64, f32)>> = BTreeMap::new();
 
-                    // 선 자르기(clipping) 함수
-                    fn clip_line_to_y_range(
-                        p1: (f64, f64),
-                        p2: (f64, f64),
-                        y_min: f64,
-                        y_max: f64,
-                    ) -> Option<Vec<(f64, f64)>> {
-                        // p1과 p2가 모두 범위 밖에 있고 같은 방향이면 그리지 않음
-                        if (p1.1 < y_min && p2.1 < y_min) || (p1.1 > y_max && p2.1 > y_max) {
-                            return None;
-                        }
-
-                        let mut result = Vec::new();
-
-                        // 양 끝점이 모두 범위 안에 있으면 그대로 반환
-                        if p1.1 >= y_min && p1.1 <= y_max && p2.1 >= y_min && p2.1 <= y_max {
-                            result.push(p1);
-                            result.push(p2);
-                            return Some(result);
-                        }
-
-                        // 선이 Y축 하한선과 교차하는 지점 계산
-                        if (p1.1 < y_min && p2.1 >= y_min) || (p1.1 >= y_min && p2.1 < y_min) {
-                            let t = (y_min - p1.1) / (p2.1 - p1.1);
-                            let x = p1.0 + t * (p2.0 - p1.0);
-                            result.push((x, y_min));
-                        }
-
-                        // 선이 Y축 상한선과 교차하는 지점 계산
-                        if (p1.1 > y_max && p2.1 <= y_max) || (p1.1 <= y_max && p2.1 > y_max) {
-                            let t = (y_max - p1.1) / (p2.1 - p1.1);
-                            let x = p1.0 + t * (p2.0 - p1.0);
-                            result.push((x, y_max));
-                        }
-
-                        // 범위 내에 있는 점 추가
-                        if p1.1 >= y_min && p1.1 <= y_max {
-                            result.push(p1);
-                        }
-                        if p2.1 >= y_min && p2.1 <= y_max {
-                            result.push(p2);
-                        }
-
-                        // 결과가 비어있으면 None 반환
-                        if result.is_empty() {
-                            None
-                        } else {
-                            // x 좌표로 정렬하여 올바른 순서 보장
-                            result.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-                            Some(result)
-                        }
-                    }
-
-                    for (t, freq) in history.iter() {
+                    // 시간별로 데이터 그룹화
+                    for (t, freqs) in history.iter() {
                         if *t < x_min || *t > x_max {
-                            // 시간 범위 밖이면 현재 세그먼트 종료
-                            if !current_segment.is_empty() {
-                                segments.push(current_segment.clone());
-                                current_segment = Vec::new();
-                            }
-                            last_point = None;
+                            // 시간 범위 밖이면 스킵
                             continue;
                         }
 
-                        if *freq == 0.0 {
-                            // 주파수가 0이면 현재 세그먼트 종료
-                            if !current_segment.is_empty() {
-                                segments.push(current_segment.clone());
-                                current_segment = Vec::new();
+                        let mut valid_freqs = Vec::new();
+                        for (freq, amplitude) in freqs {
+                            if *freq == 0.0 {
+                                continue;
                             }
-                            last_point = None;
-                            continue;
+
+                            let log_freq = freq.log10();
+                            // 범위 내 주파수만 저장
+                            if log_freq >= min_log && log_freq <= max_log {
+                                valid_freqs.push((*freq, *amplitude));
+                            }
                         }
 
-                        let log_freq = freq.log10();
-                        let current_point = (*t, log_freq);
+                        // 유효한 주파수가 있으면 저장
+                        if !valid_freqs.is_empty() {
+                            // 시간 값을 정수로 변환 (밀리초 단위)
+                            let time_key = (*t * 1000.0) as i64;
+                            time_grouped_points.insert(time_key, valid_freqs);
+                        }
+                    }
 
-                        // 이전 점과 현재 점을 연결
-                        if let Some(prev_point) = last_point {
-                            // 둘 중 하나 이상이 범위를 벗어난 경우 선 자르기 적용
-                            if log_freq < min_log
-                                || log_freq > max_log
-                                || prev_point.1 < min_log
-                                || prev_point.1 > max_log
-                            {
-                                if let Some(clipped_points) = clip_line_to_y_range(
-                                    prev_point,
-                                    current_point,
-                                    min_log,
-                                    max_log,
-                                ) {
-                                    // 잘린 선분이 있으면 추가
-                                    if clipped_points.len() >= 2 {
-                                        // 현재 세그먼트가 비어있지 않고 첫 점이 이전 세그먼트의 마지막 점과 다르면 새 세그먼트 시작
-                                        if !current_segment.is_empty()
-                                            && (current_segment.last().unwrap().0
-                                                != clipped_points[0].0
-                                                || current_segment.last().unwrap().1
-                                                    != clipped_points[0].1)
-                                        {
-                                            segments.push(current_segment.clone());
-                                            current_segment = Vec::new();
-                                        }
+                    // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
+                    let latest_time_key = time_grouped_points.keys().max().cloned();
 
-                                        for p in clipped_points {
-                                            current_segment.push(p);
-                                        }
-                                    }
-                                } else {
-                                    // 잘린 선분이 없으면 현재 세그먼트 종료
-                                    if !current_segment.is_empty() {
-                                        segments.push(current_segment.clone());
-                                        current_segment = Vec::new();
-                                    }
-                                }
+                    // 각 시간대별로 처리
+                    for (time_key, freqs) in time_grouped_points.iter() {
+                        // 진폭 기준 내림차순 정렬
+                        let mut sorted_freqs = freqs.clone();
+                        sorted_freqs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+                        // 원래 시간 값으로 변환
+                        let t = *time_key as f64 / 1000.0;
+
+                        // 각 주파수에 대해 점 그리기
+                        for (i, (freq, amplitude)) in sorted_freqs.iter().enumerate() {
+                            let log_freq = freq.log10();
+
+                            // 첫 번째(가장 강한 주파수)라도 진폭이 0.7 이상인 경우에만 강조
+                            let color = if i == 0 && *amplitude >= 0.7 {
+                                // 가장 강한 주파수는 진한 빨간색
+                                RGBColor(255, 0, 0)
                             } else {
-                                // 두 점 모두 범위 내에 있는 경우
-                                if current_segment.is_empty() {
-                                    current_segment.push(prev_point);
-                                }
-                                current_segment.push(current_point);
-                            }
-                        } else if log_freq >= min_log && log_freq <= max_log {
-                            // 첫 점이고 범위 내에 있으면 세그먼트 시작
-                            current_segment.push(current_point);
-                        }
+                                // 나머지는 매우 옅은 회색계열
+                                let alpha = (amplitude * 100.0) as u8 + 40; // 40~140 범위로 더 옅게 조정
+                                RGBColor(200, 200, 200)
+                            };
 
-                        last_point = Some(current_point);
-                    }
+                            // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
+                            let point_size = if i == 0
+                                && Some(*time_key) == latest_time_key
+                                && *amplitude >= 0.7
+                            {
+                                5 // 가장 최근의 가장 강한 주파수는 크게
+                            } else {
+                                2 // 나머지는 작게
+                            };
 
-                    // 마지막 세그먼트 추가
-                    if !current_segment.is_empty() {
-                        segments.push(current_segment);
-                    }
-
-                    // 모든 세그먼트 그리기
-                    for segment in segments {
-                        if segment.len() >= 2 {
-                            chart.draw_series(LineSeries::new(segment, &RED)).unwrap();
+                            chart
+                                .draw_series(std::iter::once(Circle::new(
+                                    (t, log_freq),
+                                    point_size,
+                                    color.filled(),
+                                )))
+                                .unwrap();
                         }
                     }
 

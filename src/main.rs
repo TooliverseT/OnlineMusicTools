@@ -89,6 +89,68 @@ fn analyze_pitch_autocorrelation(buffer: &[f32], sample_rate: f64) -> Option<f64
     Some(frequency)
 }
 
+// multi-frequency 분석 함수 추가
+fn analyze_multiple_frequencies(buffer: &[f32], sample_rate: f64) -> Vec<(f64, f32)> {
+    const RMS_THRESHOLD: f32 = 0.01;
+    const MIN_FREQ: f64 = 50.0;
+    const MAX_FREQ: f64 = 1000.0;
+    const PEAK_THRESHOLD: f32 = 0.7; // 최대 상관관계 대비 임계값
+
+    let rms = (buffer.iter().map(|&x| x * x).sum::<f32>() / buffer.len() as f32).sqrt();
+    if rms < RMS_THRESHOLD {
+        return Vec::new();
+    }
+
+    let min_lag = (sample_rate / MAX_FREQ) as usize;
+    let max_lag = (sample_rate / MIN_FREQ) as usize;
+
+    // 모든 lag에 대한 상관관계 계산
+    let mut correlations = Vec::with_capacity(max_lag + 1);
+    correlations.push(0.0); // 0 lag 값
+
+    for lag in 1..=max_lag {
+        let mut sum = 0.0;
+        for i in 0..(buffer.len() - lag) {
+            sum += buffer[i] * buffer[i + lag];
+        }
+        correlations.push(sum);
+    }
+
+    // 최대 상관관계 찾기
+    let max_corr = *correlations
+        .iter()
+        .skip(min_lag)
+        .take(max_lag - min_lag)
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap_or(&0.0);
+
+    // 임계값 설정
+    let threshold = max_corr * PEAK_THRESHOLD;
+
+    // 피크 찾기
+    let mut peaks = Vec::new();
+    for lag in min_lag..=max_lag {
+        let corr = correlations[lag];
+
+        // 주변 값보다 큰지 확인 (피크 찾기)
+        if corr > threshold
+            && (lag <= min_lag + 1 || corr > correlations[lag - 1])
+            && (lag >= max_lag - 1 || corr > correlations[lag + 1])
+        {
+            let frequency = sample_rate / lag as f64;
+            if frequency >= MIN_FREQ && frequency <= MAX_FREQ {
+                // (주파수, 진폭) 쌍 추가 - 진폭은 상관관계 값을 정규화
+                peaks.push((frequency, (corr / max_corr) as f32));
+            }
+        }
+    }
+
+    // 진폭 기준 내림차순 정렬
+    peaks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    peaks
+}
+
 // 🎤 실시간 피치 분석기
 pub struct PitchAnalyzer {
     audio_ctx: Option<AudioContext>,
@@ -96,10 +158,11 @@ pub struct PitchAnalyzer {
     _stream: Option<MediaStream>,
     pitch: String,
     prev_freqs: VecDeque<f64>,
-    history: VecDeque<(f64, f64)>,
+    // 여러 주파수를 저장하는 이력 - (timestamp, [(frequency, amplitude)])
+    history: VecDeque<(f64, Vec<(f64, f32)>)>,
     canvas_ref: NodeRef,
     elapsed_time: f64,
-    current_freq: f64, // 🔥 현재 주파수
+    current_freq: f64, // 🔥 가장 강한 주파수
 }
 
 pub enum Msg {
@@ -176,11 +239,18 @@ impl Component for PitchAnalyzer {
 
                     self.elapsed_time += 0.1;
 
-                    if let Some(freq) = analyze_pitch_autocorrelation(&buffer, sample_rate) {
+                    // 여러 주파수 분석
+                    let freqs = analyze_multiple_frequencies(&buffer, sample_rate);
+
+                    if !freqs.is_empty() {
+                        // 가장 강한 주파수 (첫 번째 요소)
+                        let strongest_freq = freqs[0].0;
+
+                        // 평균 계산을 위해 이전 목록에 추가
                         if self.prev_freqs.len() >= 5 {
                             self.prev_freqs.pop_front();
                         }
-                        self.prev_freqs.push_back(freq);
+                        self.prev_freqs.push_back(strongest_freq);
                         let average_freq =
                             self.prev_freqs.iter().sum::<f64>() / self.prev_freqs.len() as f64;
                         self.current_freq = average_freq;
@@ -188,14 +258,15 @@ impl Component for PitchAnalyzer {
                         let note = frequency_to_note_octave(average_freq);
                         self.pitch = format!("🎶 현재 음: {} ({:.2} Hz)", note, average_freq);
 
-                        self.history.push_back((self.elapsed_time, average_freq));
+                        // 전체 주파수 목록 기록
+                        self.history.push_back((self.elapsed_time, freqs));
                     } else {
                         self.pitch = "🔇 너무 작은 소리 (무시됨)".to_string();
                         self.prev_freqs.clear();
                         self.current_freq = 0.0;
 
-                        // 💡 frequency가 없을 때도 0.0을 기록
-                        self.history.push_back((self.elapsed_time, 0.0));
+                        // 빈 주파수 목록 기록
+                        self.history.push_back((self.elapsed_time, Vec::new()));
                     }
 
                     true
