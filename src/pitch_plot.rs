@@ -1,3 +1,4 @@
+use js_sys::Date;
 use log::info;
 use plotters::prelude::*;
 use plotters_canvas::CanvasBackend;
@@ -19,6 +20,12 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
     let canvas_ref = use_node_ref();
     let last_center_midi = use_state(|| 69); // MIDI 69 (A4)를 기본값으로 설정
     let last_center_freq = use_state(|| 440.0); // A4 주파수를 기본값으로 설정
+
+    // 애니메이션을 위한 상태 추가
+    let target_center_freq = use_state(|| 440.0); // 목표 중심 주파수
+    let transition_start_time = use_state(|| 0.0); // 전환 시작 시간
+    let transition_duration = use_state(|| 0.5); // 전환 지속 시간 (초)
+    let is_transitioning = use_state(|| false); // 전환 중인지 여부
 
     // 드래그 관련 상태 추가
     let is_dragging = use_state(|| false);
@@ -166,6 +173,11 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         })
     };
 
+    // 부드러운 전환을 위한 함수
+    fn ease_out_cubic(x: f64) -> f64 {
+        1.0 - (1.0 - x).powi(3)
+    }
+
     {
         let canvas_ref = canvas_ref.clone();
         let history = props.history.clone();
@@ -175,6 +187,10 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let freq_ratio = freq_ratio.clone();
         let auto_follow = auto_follow.clone();
         let fixed_time_range = fixed_time_range.clone();
+        let target_center_freq = target_center_freq.clone();
+        let transition_start_time = transition_start_time.clone();
+        let transition_duration = transition_duration.clone();
+        let is_transitioning = is_transitioning.clone();
 
         use_effect_with(
             (
@@ -183,9 +199,65 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 *freq_ratio,
                 *auto_follow,
                 fixed_time_range.clone(),
+                *is_transitioning,
             ),
             move |_| {
+                // 현재 시간 얻기 (초 단위)
+                let current_time = Date::now() / 1000.0;
+
                 if let Some(canvas) = canvas_ref.cast::<web_sys::HtmlCanvasElement>() {
+                    // 주파수가 변경되었고, 자동 따라가기 모드일 때 처리
+                    if *auto_follow && current_freq > 0.0 {
+                        // 현재 표시 중인 주파수와 새 주파수의 차이가 큰 경우 부드러운 전환
+                        let current_center = *last_center_freq_handle;
+                        let new_freq = current_freq;
+
+                        // 현재 주파수와 새 주파수의 MIDI 노트 값 차이로 범위 밖 여부 확인
+                        let current_midi = midi_float_from_freq(current_center);
+                        let new_midi = midi_float_from_freq(new_freq);
+                        let midi_diff = (new_midi - current_midi).abs();
+
+                        // MIDI 노트 값 차이가 충분히 큰 경우(≈반음 이상) 전환 시작
+                        if midi_diff > 1.0 && !*is_transitioning {
+                            // 새로운 전환 시작
+                            target_center_freq.set(new_freq);
+                            transition_start_time.set(current_time);
+                            is_transitioning.set(true);
+                        } else if !*is_transitioning {
+                            // 작은 변화는 즉시 적용
+                            last_center_midi_handle.set(midi_from_freq(new_freq));
+                            last_center_freq_handle.set(new_freq);
+                        }
+                    }
+
+                    // 전환 중이라면 진행 상태 계산
+                    if *is_transitioning {
+                        let elapsed = current_time - *transition_start_time;
+                        let progress = (elapsed / *transition_duration).min(1.0);
+
+                        if progress >= 1.0 {
+                            // 전환 완료
+                            is_transitioning.set(false);
+                            last_center_freq_handle.set(*target_center_freq);
+                            last_center_midi_handle.set(midi_from_freq(*target_center_freq));
+                        } else {
+                            // 전환 진행 중 - 중간값 계산
+                            let t = ease_out_cubic(progress);
+                            let start_freq = *last_center_freq_handle;
+                            let target_freq = *target_center_freq;
+
+                            // 로그 스케일로 보간
+                            let log_start = start_freq.ln();
+                            let log_target = target_freq.ln();
+                            let log_current = log_start + (log_target - log_start) * t;
+                            let current_freq = log_current.exp();
+
+                            // 현재 중간값 적용
+                            last_center_freq_handle.set(current_freq);
+                            last_center_midi_handle.set(midi_from_freq(current_freq));
+                        }
+                    }
+
                     let backend = CanvasBackend::with_canvas_object(canvas).unwrap();
                     let root = backend.into_drawing_area();
                     root.fill(&WHITE).unwrap();
@@ -216,17 +288,12 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         }
                     };
 
-                    // 현재 중심 주파수 계산
+                    // 현재 중심 주파수 계산 (전환 중이면 보간된 값 사용)
                     let center_freq = if current_freq <= 0.0 {
                         // 주파수가 0이면 마지막 저장된 주파수 사용
                         *last_center_freq_handle
                     } else {
-                        // 현재 주파수 사용
-                        if *auto_follow {
-                            // 현재 주파수 값으로 상태 업데이트
-                            last_center_midi_handle.set(midi_from_freq(current_freq));
-                            last_center_freq_handle.set(current_freq);
-                        }
+                        // 전환 중이거나 자동 모드일 때는 이미 last_center_freq_handle 업데이트됨
                         *last_center_freq_handle
                     };
 
