@@ -18,13 +18,14 @@ pub struct PitchPlotProps {
 pub fn pitch_plot(props: &PitchPlotProps) -> Html {
     let canvas_ref = use_node_ref();
     let last_center_midi = use_state(|| 69); // MIDI 69 (A4)를 기본값으로 설정
+    let last_center_freq = use_state(|| 440.0); // A4 주파수를 기본값으로 설정
 
     // 드래그 관련 상태 추가
     let is_dragging = use_state(|| false);
     let drag_start_x = use_state(|| 0);
     let drag_start_y = use_state(|| 0);
     let view_offset_x = use_state(|| 0.0); // 시간축 오프셋 (초)
-    let view_offset_y = use_state(|| 1.0); // 주파수 스케일 팩터 (1.0 = 원래 스케일)
+    let freq_ratio = use_state(|| 1.0); // 주파수 비율 오프셋 (곱하는 값, 1.0이 기본값)
     let auto_follow = use_state(|| true); // 자동 따라가기 모드 (기본값: 활성화)
 
     // 고정 시간 범위를 위한 상태 추가
@@ -70,10 +71,11 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let drag_start_x = drag_start_x.clone();
         let drag_start_y = drag_start_y.clone();
         let view_offset_x = view_offset_x.clone();
-        let view_offset_y = view_offset_y.clone();
+        let freq_ratio = freq_ratio.clone();
         let canvas_ref = canvas_ref.clone();
         let history = props.history.clone();
         let fixed_time_range = fixed_time_range.clone();
+        let last_center_freq = last_center_freq.clone();
 
         Callback::from(move |e: MouseEvent| {
             if !*is_dragging {
@@ -102,22 +104,35 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     }
                 }
 
-                // Y축 이동 (주파수 스케일) - 주파수 비율 단위로 계산
+                // Y축 이동 (주파수 스케일) - 주파수 비율로 계산
                 let dy = e.client_y() - *drag_start_y;
+                let freq_range_factor = 1.5f64; // 화면에 표시되는 주파수 범위 비율
+                let freq_range_log = freq_range_factor.ln() * 2.0; // 로그 스케일에서의 범위
+                let log_per_pixel = freq_range_log / canvas_height as f64;
 
-                // 마우스 이동에 따른 주파수 스케일 계수 계산
-                // 위로 드래그하면 주파수가 증가하고 아래로 드래그하면 감소
-                let freq_scale_change_rate = 0.003; // 조절 가능한 속도 계수
-                let freq_scale_change = 1.0 - dy as f64 * freq_scale_change_rate;
+                // 마우스 이동에 따른 주파수 비율 변화량 계산 (로그 스케일 기반)
+                let dfreq_ratio = (-dy as f64 * log_per_pixel).exp();
 
-                // 현재 스케일에 변화량 적용
-                let new_scale = *view_offset_y * freq_scale_change;
+                // 새 주파수 비율 적용 (곱셈으로 비율 변화 적용)
+                let new_freq_ratio = *freq_ratio * dfreq_ratio;
 
-                // 너무 극단적인 값이 되지 않도록 제한
-                // (예: 0.2 ~ 5.0 - 0.2는 원래 주파수의 1/5, 5.0은 원래 주파수의 5배)
-                let min_scale = 0.2;
-                let max_scale = 5.0;
-                view_offset_y.set(new_scale.max(min_scale).min(max_scale));
+                // 주파수 비율 범위 제한 (너무 높거나 낮은 주파수로 이동하지 않도록)
+                // MIDI 0 (C-1)에서 127 (G9)까지의 주파수 범위 내에서 제한
+                let min_freq = freq_from_midi(0); // C-1
+                let max_freq = freq_from_midi(127); // G9
+                let base_freq = *last_center_freq;
+
+                let min_ratio = min_freq / base_freq * 2.0; // 최소 주파수 비율 (약간의 여유 추가)
+                let max_ratio = max_freq / base_freq * 0.5; // 최대 주파수 비율 (약간의 여유 추가)
+
+                // 클램핑하여 비율을 제한하고 상태 업데이트
+                if new_freq_ratio < min_ratio {
+                    freq_ratio.set(min_ratio);
+                } else if new_freq_ratio > max_ratio {
+                    freq_ratio.set(max_ratio);
+                } else {
+                    freq_ratio.set(new_freq_ratio);
+                }
 
                 // 드래그 시작점 업데이트
                 drag_start_x.set(e.client_x());
@@ -137,7 +152,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
     let on_double_click = {
         let view_offset_x = view_offset_x.clone();
-        let view_offset_y = view_offset_y.clone();
+        let freq_ratio = freq_ratio.clone();
         let auto_follow = auto_follow.clone();
         let fixed_time_range = fixed_time_range.clone();
 
@@ -145,7 +160,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
             e.prevent_default();
             // 더블 클릭 시 원래 위치로 리셋
             view_offset_x.set(0.0);
-            view_offset_y.set(1.0); // 주파수 스케일 리셋을 1.0으로 변경
+            freq_ratio.set(1.0); // 주파수 비율 리셋 (1.0 = 원래 비율)
             auto_follow.set(true); // 자동 따라가기 다시 활성화
             fixed_time_range.set(None); // 고정 시간 범위 해제
         })
@@ -156,7 +171,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let history = props.history.clone();
         let current_freq = props.current_freq;
         let last_center_midi_handle = last_center_midi.clone();
-        let view_offset_y = view_offset_y.clone();
+        let last_center_freq_handle = last_center_freq.clone();
+        let freq_ratio = freq_ratio.clone();
         let auto_follow = auto_follow.clone();
         let fixed_time_range = fixed_time_range.clone();
 
@@ -164,7 +180,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
             (
                 history.clone(),
                 current_freq,
-                *view_offset_y,
+                *freq_ratio,
                 *auto_follow,
                 fixed_time_range.clone(),
             ),
@@ -202,23 +218,24 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                     // 현재 중심 주파수 계산
                     let center_freq = if current_freq <= 0.0 {
-                        // 주파수가 0이면 마지막 저장된 MIDI 값으로부터 주파수 계산
-                        freq_from_midi(*last_center_midi_handle)
+                        // 주파수가 0이면 마지막 저장된 주파수 사용
+                        *last_center_freq_handle
                     } else {
                         // 현재 주파수 사용
                         if *auto_follow {
+                            // 현재 주파수 값으로 상태 업데이트
                             last_center_midi_handle.set(midi_from_freq(current_freq));
-                            // MIDI 값 업데이트 (참조용)
+                            last_center_freq_handle.set(current_freq);
                         }
-                        freq_from_midi(*last_center_midi_handle)
+                        *last_center_freq_handle
                     };
 
-                    // Y축 오프셋 적용 (Hz 단위)
+                    // Y축 오프셋 적용 (주파수 비율 단위)
                     let adjusted_center_freq = if *auto_follow {
                         center_freq
                     } else {
-                        // view_offset_y는 이제 주파수 비율이므로 직접 곱함
-                        center_freq * *view_offset_y
+                        // freq_ratio는 주파수 비율이므로 곱하기로 적용
+                        center_freq * *freq_ratio
                     };
 
                     // 주파수 범위 계산 (옥타브 단위로 설정)
@@ -246,6 +263,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     let mut y_labels: Vec<(f64, String)> = Vec::new();
                     let mut grid_lines: Vec<f64> = Vec::new();
 
+                    // MIDI 노트에 해당하는 주파수에만 라벨과 보조선 표시
                     for midi in min_midi..=max_midi {
                         if midi != min_midi && midi != max_midi {
                             let freq = freq_from_midi(midi);
