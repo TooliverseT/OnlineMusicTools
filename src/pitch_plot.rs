@@ -327,8 +327,13 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .unwrap();
 
                     // 라벨과 보조선 위치 설정
-                    let mut y_labels: Vec<(f64, String)> = Vec::new();
+                    let mut y_labels: Vec<(f64, String, bool)> = Vec::new();
                     let mut grid_lines: Vec<f64> = Vec::new();
+
+                    // 현재 주파수에 가장 가까운 MIDI 노트 계산
+                    let closest_midi = midi_from_freq(current_freq);
+                    let closest_freq = freq_from_midi(closest_midi);
+                    let closest_log_freq = closest_freq.log10();
 
                     // MIDI 노트에 해당하는 주파수에만 라벨과 보조선 표시
                     for midi in min_midi..=max_midi {
@@ -336,7 +341,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             let freq = freq_from_midi(midi);
                             let log_freq = freq.log10();
                             let name = note_name_from_midi(midi);
-                            y_labels.push((log_freq, name));
+                            y_labels.push((log_freq, name, midi == closest_midi));
                             grid_lines.push(log_freq);
                         }
                     }
@@ -353,18 +358,38 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .unwrap();
 
                     // 직접 y축 라벨과 가로선 그리기
-                    for (log_freq, label) in y_labels.iter() {
-                        // 가로선 추가
+                    for (log_freq, label, is_closest) in y_labels.iter() {
+                        // 가로선 추가 - 가장 가까운 노트는 다른 색상으로 표시
+                        let line_color = if *is_closest {
+                            // 현재 주파수에 가장 가까운 노트는 파란색 라인
+                            RGBColor(100, 149, 237) // 콘플라워 블루
+                        } else {
+                            // 나머지는 기존 회색 라인
+                            RGBColor(200, 200, 200)
+                        };
+
+                        let line_width = if *is_closest { 2 } else { 1 };
+
                         chart
                             .draw_series(std::iter::once(PathElement::new(
                                 vec![(x_min, *log_freq), (x_max, *log_freq)],
-                                ShapeStyle::from(&RGBColor(200, 200, 200)).stroke_width(1), // 연한 회색 실선
+                                ShapeStyle::from(&line_color).stroke_width(line_width),
                             )))
                             .unwrap();
 
                         // Y축 라벨을 차트 왼쪽 영역에 그리기
                         // 좌표 변환 직접 계산: 차트 왼쪽 영역에 라벨 배치
-                        let style = TextStyle::from(("sans-serif", 15).into_font());
+                        let font_weight = if *is_closest { "bold" } else { "normal" };
+                        let font_size = if *is_closest { 17.0 } else { 15.0 };
+                        let font_desc = format!("{}px {} sans-serif", font_size, font_weight);
+                        let style = TextStyle::from(font_desc.into_font());
+
+                        // 가장 가까운 노트는 텍스트 색상도 변경
+                        let text_color = if *is_closest {
+                            &RGBColor(65, 105, 225) // 로열 블루
+                        } else {
+                            &BLACK
+                        };
 
                         // 로그 주파수 값을 정규화하여 Y 좌표로 변환 (0.0 ~ 1.0 범위로)
                         let normalized_y = (max_log - *log_freq) / (max_log - min_log);
@@ -383,8 +408,6 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                         // 텍스트가 정확히 가로선 중앙에 위치하도록 조정
                         // 폰트 크기의 절반을 기본값으로 설정하고, 위치에 따라 점진적으로 조정
-                        let font_size = 15.0;
-
                         // 위치에 따른 보정 계수 계산 (위쪽은 작게, 아래쪽은 크게)
                         // normalized_y는 0.0(위)에서 1.0(아래)의 값을 가짐
                         let position_factor = 1.0 + normalized_y * 1.2; // 0.7에서 1.4까지 변화
@@ -395,7 +418,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         // 차트 왼쪽 영역에 텍스트 그리기
                         root.draw_text(
                             &label,
-                            &style,
+                            &(style.color(text_color)),
                             (40, pixel_y - text_vertical_center_offset), // 수직 및 수평 위치 조정
                         )
                         .unwrap();
