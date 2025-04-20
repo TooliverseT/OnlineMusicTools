@@ -1,3 +1,4 @@
+use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::pitch_plot::PitchPlot;
 use js_sys::{Float32Array, Promise};
 use log::info;
@@ -11,6 +12,7 @@ use web_sys::{
 };
 use yew::prelude::*;
 
+mod dashboard;
 mod pitch_plot;
 
 #[wasm_bindgen]
@@ -367,9 +369,13 @@ impl Component for PitchAnalyzer {
             Msg::UpdateSensitivity(value)
         });
 
-        html! {
-            <div>
-                <h1>{ "🎵 실시간 피치 분석기" }</h1>
+        let current_freq = self.current_freq;
+        let history = VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>());
+
+        // 피치 분석 컨트롤 컴포넌트
+        let pitch_controls = html! {
+            <div class="pitch-controls">
+                <h2>{ "🎵 실시간 피치 분석기" }</h2>
                 <button onclick={ctx.link().callback(|_| Msg::StartAudio)}>{ "🎤 마이크 시작" }</button>
                 <p>{ &self.pitch }</p>
 
@@ -388,8 +394,36 @@ impl Component for PitchAnalyzer {
                     />
                     <span>{ format!("{:.3}", self.sensitivity) }</span>
                 </div>
+            </div>
+        };
 
-                <PitchPlot current_freq={self.current_freq} history={VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>())} />
+        // 피치 플롯 컴포넌트
+        let pitch_plot = html! {
+            <PitchPlot current_freq={current_freq} history={history} />
+        };
+
+        // 대시보드 레이아웃 구성
+        let items = vec![
+            DashboardItem {
+                id: "pitch-controls".to_string(),
+                component: pitch_controls,
+                width: 1,
+                height: 1,
+            },
+            DashboardItem {
+                id: "pitch-plot".to_string(),
+                component: pitch_plot,
+                width: 2,
+                height: 2,
+            },
+        ];
+
+        let layout = DashboardLayout { items, columns: 3 };
+
+        html! {
+            <div class="app-container">
+                <h1>{ "🎵 온라인 음악 도구" }</h1>
+                <Dashboard layout={layout} />
             </div>
         }
     }
