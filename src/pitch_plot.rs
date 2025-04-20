@@ -456,6 +456,38 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         }
                     }
 
+                    // 현재 시간에 대한 세로선 그리기
+                    // 현재 시간 (history의 마지막 시간)
+                    let current_time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+
+                    // 현재 시간이 표시 범위 내에 있는 경우에만 세로선 표시
+                    if current_time >= x_min && current_time <= x_max {
+                        // 현재 시간 세로선 스타일 설정
+                        let line_color = RGBColor(50, 180, 50); // 초록색 계열
+                        let line_style = ShapeStyle::from(&line_color).stroke_width(2);
+
+                        // 현재 시간 세로선 그리기
+                        chart
+                            .draw_series(std::iter::once(PathElement::new(
+                                vec![(current_time, min_log), (current_time, max_log)],
+                                line_style,
+                            )))
+                            .unwrap();
+
+                        // // 현재 시간 라벨 표시
+                        // let time_label = format!("{:.1}s", current_time);
+                        // let text_style = TextStyle::from(("sans-serif", 14).into_font())
+                        //     .color(&RGBColor(50, 180, 50));
+
+                        // chart
+                        //     .draw_series(std::iter::once(Text::new(
+                        //         time_label,
+                        //         (current_time, max_log),
+                        //         &text_style,
+                        //     )))
+                        //     .unwrap();
+                    }
+
                     // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
                     let latest_time_key = time_grouped_points.keys().max().cloned();
 
