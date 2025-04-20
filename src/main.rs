@@ -38,8 +38,8 @@ fn frequency_to_note_octave(freq: f64) -> String {
     let n = (12.0 * (freq / a4).log2()).round() as i32;
     let midi_number = n + 69;
 
-    if midi_number < 12 || midi_number > 95 {
-        return "Out of range".to_string(); // C0 ~ B6에 해당
+    if midi_number < 24 || midi_number > 96 {
+        return "Out of range".to_string(); // C1 ~ C6에 해당 (MIDI 24-96)
     }
 
     let note = notes[(midi_number % 12) as usize];
@@ -50,16 +50,16 @@ fn frequency_to_note_octave(freq: f64) -> String {
 
 fn analyze_pitch_autocorrelation(buffer: &[f32], sample_rate: f64) -> Option<f64> {
     const RMS_THRESHOLD: f32 = 0.01;
-    const MIN_FREQ: f64 = 50.0;
-    const MAX_FREQ: f64 = 1000.0;
+    const MIN_FREQ: f64 = 32.0; // C1 주파수에 가까운 값 (32.7Hz)
+    const MAX_FREQ: f64 = 1050.0; // C6 주파수에 가까운 값 (1046.5Hz)
 
     let rms = (buffer.iter().map(|&x| x * x).sum::<f32>() / buffer.len() as f32).sqrt();
     if rms < RMS_THRESHOLD {
         return None;
     }
 
-    let min_lag = (sample_rate / MAX_FREQ) as usize; // 44100 / 1000 = 44
-    let max_lag = (sample_rate / MIN_FREQ) as usize; // 44100 / 50 = 882
+    let min_lag = (sample_rate / MAX_FREQ) as usize;
+    let max_lag = (sample_rate / MIN_FREQ) as usize;
 
     let mut best_lag = 0;
     let mut max_corr = 0.0;
@@ -92,23 +92,40 @@ fn analyze_pitch_autocorrelation(buffer: &[f32], sample_rate: f64) -> Option<f64
 // multi-frequency 분석 함수 추가
 fn analyze_multiple_frequencies(buffer: &[f32], sample_rate: f64) -> Vec<(f64, f32)> {
     const RMS_THRESHOLD: f32 = 0.01;
-    const MIN_FREQ: f64 = 50.0;
-    const MAX_FREQ: f64 = 1000.0;
+    const MIN_FREQ: f64 = 32.0; // C1 주파수에 가까운 값 (32.7Hz)
+    const MAX_FREQ: f64 = 1050.0; // C6 주파수에 가까운 값 (1046.5Hz)
     const PEAK_THRESHOLD: f32 = 0.7; // 최대 상관관계 대비 임계값
+    const ABSOLUTE_MIN_FREQ: f64 = 30.0; // 검출 가능한 절대 최소 주파수 (C1보다 약간 낮게)
+    const ABSOLUTE_MAX_FREQ: f64 = 1100.0; // 검출 가능한 절대 최대 주파수 (C6보다 약간 높게)
 
     let rms = (buffer.iter().map(|&x| x * x).sum::<f32>() / buffer.len() as f32).sqrt();
     if rms < RMS_THRESHOLD {
         return Vec::new();
     }
 
-    let min_lag = (sample_rate / MAX_FREQ) as usize;
-    let max_lag = (sample_rate / MIN_FREQ) as usize;
+    // 검출 가능한 절대 범위로 lag 범위 계산
+    let absolute_min_lag = (sample_rate / ABSOLUTE_MAX_FREQ).max(1.0) as usize;
+    let absolute_max_lag = (sample_rate / ABSOLUTE_MIN_FREQ) as usize;
 
-    // 모든 lag에 대한 상관관계 계산
-    let mut correlations = Vec::with_capacity(max_lag + 1);
+    // 버퍼 길이보다 큰 lag는 계산할 수 없으므로 제한
+    let absolute_max_lag = absolute_max_lag.min(buffer.len() - 1);
+
+    // min_lag가 max_lag보다 크면 값을 교체하여 오류 방지
+    let (absolute_min_lag, absolute_max_lag) = if absolute_min_lag > absolute_max_lag {
+        (1, absolute_min_lag.min(buffer.len() - 1))
+    } else {
+        (absolute_min_lag, absolute_max_lag)
+    };
+
+    // 상관관계 계산 범위는 넓게 잡되, 유효 주파수 판정은 MIN_FREQ~MAX_FREQ로 제한
+    let target_min_lag = (sample_rate / MAX_FREQ) as usize;
+    let target_max_lag = (sample_rate / MIN_FREQ) as usize;
+
+    // 모든 lag에 대한 상관관계 계산 (넓은 범위)
+    let mut correlations = Vec::with_capacity(absolute_max_lag + 1);
     correlations.push(0.0); // 0 lag 값
 
-    for lag in 1..=max_lag {
+    for lag in 1..=absolute_max_lag {
         let mut sum = 0.0;
         for i in 0..(buffer.len() - lag) {
             sum += buffer[i] * buffer[i + lag];
@@ -116,31 +133,44 @@ fn analyze_multiple_frequencies(buffer: &[f32], sample_rate: f64) -> Vec<(f64, f
         correlations.push(sum);
     }
 
-    // 최대 상관관계 찾기
-    let max_corr = *correlations
-        .iter()
-        .skip(min_lag)
-        .take(max_lag - min_lag)
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap_or(&0.0);
+    // 모든 lag에 대한 상관관계 값 중 최댓값 찾기
+    let max_corr = if absolute_min_lag < absolute_max_lag {
+        *correlations
+            .iter()
+            .skip(absolute_min_lag)
+            .take(absolute_max_lag - absolute_min_lag)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(&0.0)
+    } else {
+        // min_lag가 max_lag보다 크거나 같은 경우
+        0.0
+    };
 
     // 임계값 설정
     let threshold = max_corr * PEAK_THRESHOLD;
 
-    // 피크 찾기
+    // 피크 찾기 (전체 범위에서)
     let mut peaks = Vec::new();
-    for lag in min_lag..=max_lag {
+    for lag in absolute_min_lag..=absolute_max_lag {
         let corr = correlations[lag];
 
         // 주변 값보다 큰지 확인 (피크 찾기)
         if corr > threshold
-            && (lag <= min_lag + 1 || corr > correlations[lag - 1])
-            && (lag >= max_lag - 1 || corr > correlations[lag + 1])
+            && (lag <= absolute_min_lag + 1 || corr > correlations[lag - 1])
+            && (lag >= absolute_max_lag - 1 || corr > correlations[lag + 1])
         {
             let frequency = sample_rate / lag as f64;
+
+            // 주파수가 범위를 벗어나면 명확히 표시
+            let amplitude = (corr / max_corr) as f32;
+
             if frequency >= MIN_FREQ && frequency <= MAX_FREQ {
-                // (주파수, 진폭) 쌍 추가 - 진폭은 상관관계 값을 정규화
-                peaks.push((frequency, (corr / max_corr) as f32));
+                // 정상 범위 주파수는 그대로 추가
+                peaks.push((frequency, amplitude));
+            } else {
+                // 범위 밖 주파수는 특별히 표시 (진폭에 0.5 곱하기)
+                // 이는 UI에서 범위 밖 주파수를 표시하되 약하게 표시하는데 사용할 수 있음
+                peaks.push((frequency, amplitude * 0.5));
             }
         }
     }
