@@ -1,13 +1,18 @@
+use crate::routes::Route;
 use std::collections::HashMap;
 use yew::prelude::*;
+use yew_router::prelude::*;
 
 /// 대시보드 아이템의 속성을 정의하는 구조체
 #[derive(Properties, PartialEq, Clone)]
 pub struct DashboardItem {
     pub id: String,
     pub component: Html,
-    pub width: u32,  // 차지하는 격자 너비
-    pub height: u32, // 차지하는 격자 높이
+    pub width: u32,           // 차지하는 격자 너비
+    pub height: u32,          // 차지하는 격자 높이
+    pub route: Option<Route>, // 상세 페이지 라우트
+    #[prop_or(false)]
+    pub show_link: bool, // 링크 버튼 표시 여부
 }
 
 /// 대시보드 레이아웃 속성을 정의하는 구조체
@@ -48,6 +53,20 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                             class="dashboard-item"
                             style={item_style}
                         >
+                            {
+                                // 링크 표시 여부에 따라 상단 링크 버튼 추가
+                                if item.show_link && item.route.is_some() {
+                                    html! {
+                                        <div class="dashboard-item-header">
+                                            <Link<Route> to={item.route.clone().unwrap()}>
+                                                { format!("🔗 {} 상세보기", item.id) }
+                                            </Link<Route>>
+                                        </div>
+                                    }
+                                } else {
+                                    html! {}
+                                }
+                            }
                             <div class="dashboard-item-content">
                                 { item.component.clone() }
                             </div>

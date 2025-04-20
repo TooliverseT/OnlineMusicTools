@@ -574,7 +574,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
             onmouseup={&on_mouse_up}
             onmouseleave={on_mouse_up.clone()}
             ondblclick={on_double_click}
-            style="cursor: move; height: 95%;"
+            style="cursor: move;"
         />
     }
 }

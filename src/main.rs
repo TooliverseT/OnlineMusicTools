@@ -1,5 +1,6 @@
 use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::pitch_plot::PitchPlot;
+use crate::routes::{switch, Route};
 use js_sys::{Float32Array, Promise};
 use log::info;
 use std::collections::VecDeque;
@@ -11,9 +12,11 @@ use web_sys::{
     MediaStreamAudioSourceNode, MediaStreamConstraints, Navigator,
 };
 use yew::prelude::*;
+use yew_router::prelude::*;
 
 mod dashboard;
 mod pitch_plot;
+mod routes;
 
 #[wasm_bindgen]
 extern "C" {
@@ -204,6 +207,7 @@ pub struct PitchAnalyzer {
     elapsed_time: f64,
     current_freq: f64, // 🔥 가장 강한 주파수
     sensitivity: f32,  // 🎚️ 마이크 입력 감도 설정
+    show_links: bool,  // 🔗 링크 표시 여부
 }
 
 pub enum Msg {
@@ -211,6 +215,7 @@ pub enum Msg {
     UpdatePitch,
     AudioReady(AudioContext, AnalyserNode, MediaStream),
     UpdateSensitivity(f32),
+    ToggleLinks, // 🔗 링크 표시 여부 토글
 }
 
 impl Component for PitchAnalyzer {
@@ -229,6 +234,7 @@ impl Component for PitchAnalyzer {
             elapsed_time: 0.0,
             current_freq: 0.0,
             sensitivity: 0.01, // 기본 감도 값
+            show_links: true,  // 기본적으로 링크 표시
         }
     }
 
@@ -333,17 +339,14 @@ impl Component for PitchAnalyzer {
                 true
             }
 
+            Msg::ToggleLinks => {
+                self.show_links = !self.show_links;
+                true
+            }
+
             Msg::UpdateSensitivity(value) => {
                 self.sensitivity = value;
-
-                // 감도 값 변경 후 분석기 업데이트
-                if let Some(analyser) = &self.analyser {
-                    // RMS_THRESHOLD를 동적으로 변경할 수 없으므로
-                    // 변경된 감도값은 analyze_multiple_frequencies 호출 시 전달
-                    true
-                } else {
-                    true
-                }
+                true
             }
         }
     }
@@ -371,12 +374,18 @@ impl Component for PitchAnalyzer {
 
         let current_freq = self.current_freq;
         let history = VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>());
+        let show_links = self.show_links;
 
         // 피치 분석 컨트롤 컴포넌트
         let pitch_controls = html! {
             <div class="pitch-controls">
                 <h2>{ "🎵 실시간 피치 분석기" }</h2>
-                <button onclick={ctx.link().callback(|_| Msg::StartAudio)}>{ "🎤 마이크 시작" }</button>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button onclick={ctx.link().callback(|_| Msg::StartAudio)}>{ "🎤 마이크 시작" }</button>
+                    <button onclick={ctx.link().callback(|_| Msg::ToggleLinks)}>
+                        { if show_links { "🔗 링크 숨기기" } else { "🔗 링크 표시하기" } }
+                    </button>
+                </div>
                 <p>{ &self.pitch }</p>
 
                 <div style="margin: 20px 0;">
@@ -409,12 +418,16 @@ impl Component for PitchAnalyzer {
                 component: pitch_controls,
                 width: 1,
                 height: 1,
+                route: Some(Route::PitchControls),
+                show_link: self.show_links,
             },
             DashboardItem {
                 id: "pitch-plot".to_string(),
                 component: pitch_plot,
                 width: 2,
                 height: 2,
+                route: Some(Route::PitchPlot),
+                show_link: self.show_links,
             },
         ];
 
@@ -432,7 +445,11 @@ impl Component for PitchAnalyzer {
 // Yew 앱 진입점
 #[function_component(App)]
 fn app() -> Html {
-    html! { <PitchAnalyzer /> }
+    html! {
+        <BrowserRouter>
+            <Switch<Route> render={switch} />
+        </BrowserRouter>
+    }
 }
 
 // main 함수 정의 (wasm 앱 진입점)

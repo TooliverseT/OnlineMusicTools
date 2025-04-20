@@ -63,6 +63,8 @@
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
       overflow: hidden;
       transition: transform 0.3s, box-shadow 0.3s;
+      display: flex;
+      flex-direction: column;
     }
     
     .dashboard-item:hover {
@@ -70,10 +72,35 @@
       box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
     }
     
+    /* 대시보드 아이템 헤더 스타일 */
+    .dashboard-item-header {
+      background-color: #f0f4f8;
+      padding: 10px 15px;
+      border-bottom: 1px solid #e0e6ed;
+      display: flex;
+      justify-content: flex-end;
+    }
+    
+    .dashboard-item-header a {
+      text-decoration: none;
+      color: #3498db;
+      font-weight: 600;
+      font-size: 14px;
+      background-color: rgba(52, 152, 219, 0.1);
+      padding: 5px 10px;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+    
+    .dashboard-item-header a:hover {
+      background-color: rgba(52, 152, 219, 0.2);
+      transform: translateY(-2px);
+    }
+    
     .dashboard-item-content {
       padding: 20px;
-      height: 100%;
-      overflow: auto;
+      flex: 1;
+      overflow: none;
     }
     
     /* 카드 컴포넌트 스타일 */
@@ -128,6 +155,42 @@
       border-radius: 4px;
     }
     
+    /* 상세 페이지 스타일 */
+    .detail-page {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 30px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    .detail-page h1 {
+      text-align: left;
+      margin-bottom: 15px;
+      color: #2c3e50;
+    }
+    
+    .detail-page a {
+      display: inline-block;
+      margin-bottom: 30px;
+      text-decoration: none;
+      color: #3498db;
+      font-weight: 600;
+      padding: 8px 16px;
+      background-color: rgba(52, 152, 219, 0.1);
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+    
+    .detail-page a:hover {
+      background-color: rgba(52, 152, 219, 0.2);
+    }
+    
+    .detail-page .content {
+      padding: 20px 0;
+    }
+    
     /* 반응형 스타일 */
     @media (max-width: 768px) {
       .dashboard {
@@ -136,6 +199,10 @@
       
       .dashboard-item {
         grid-column: 1;
+      }
+      
+      .detail-page {
+        padding: 20px;
       }
     }
   </style>
