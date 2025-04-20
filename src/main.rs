@@ -48,13 +48,16 @@ fn frequency_to_note_octave(freq: f64) -> String {
     format!("{}{}", note, octave)
 }
 
-fn analyze_pitch_autocorrelation(buffer: &[f32], sample_rate: f64) -> Option<f64> {
-    const RMS_THRESHOLD: f32 = 0.01;
+fn analyze_pitch_autocorrelation(
+    buffer: &[f32],
+    sample_rate: f64,
+    sensitivity: f32,
+) -> Option<f64> {
     const MIN_FREQ: f64 = 32.0; // C1 주파수에 가까운 값 (32.7Hz)
     const MAX_FREQ: f64 = 1050.0; // C6 주파수에 가까운 값 (1046.5Hz)
 
     let rms = (buffer.iter().map(|&x| x * x).sum::<f32>() / buffer.len() as f32).sqrt();
-    if rms < RMS_THRESHOLD {
+    if rms < sensitivity {
         return None;
     }
 
@@ -90,8 +93,13 @@ fn analyze_pitch_autocorrelation(buffer: &[f32], sample_rate: f64) -> Option<f64
 }
 
 // multi-frequency 분석 함수 추가
-fn analyze_multiple_frequencies(buffer: &[f32], sample_rate: f64) -> Vec<(f64, f32)> {
-    const RMS_THRESHOLD: f32 = 0.01;
+fn analyze_multiple_frequencies(
+    buffer: &[f32],
+    sample_rate: f64,
+    sensitivity: f32,
+) -> Vec<(f64, f32)> {
+    // RMS_THRESHOLD 대신 전달된 sensitivity 사용
+    // const RMS_THRESHOLD: f32 = 0.01;
     const MIN_FREQ: f64 = 32.0; // C1 주파수에 가까운 값 (32.7Hz)
     const MAX_FREQ: f64 = 1050.0; // C6 주파수에 가까운 값 (1046.5Hz)
     const PEAK_THRESHOLD: f32 = 0.7; // 최대 상관관계 대비 임계값
@@ -99,7 +107,7 @@ fn analyze_multiple_frequencies(buffer: &[f32], sample_rate: f64) -> Vec<(f64, f
     const ABSOLUTE_MAX_FREQ: f64 = 1100.0; // 검출 가능한 절대 최대 주파수 (C6보다 약간 높게)
 
     let rms = (buffer.iter().map(|&x| x * x).sum::<f32>() / buffer.len() as f32).sqrt();
-    if rms < RMS_THRESHOLD {
+    if rms < sensitivity {
         return Vec::new();
     }
 
@@ -193,12 +201,14 @@ pub struct PitchAnalyzer {
     canvas_ref: NodeRef,
     elapsed_time: f64,
     current_freq: f64, // 🔥 가장 강한 주파수
+    sensitivity: f32,  // 🎚️ 마이크 입력 감도 설정
 }
 
 pub enum Msg {
     StartAudio,
     UpdatePitch,
     AudioReady(AudioContext, AnalyserNode, MediaStream),
+    UpdateSensitivity(f32),
 }
 
 impl Component for PitchAnalyzer {
@@ -216,6 +226,7 @@ impl Component for PitchAnalyzer {
             canvas_ref: NodeRef::default(),
             elapsed_time: 0.0,
             current_freq: 0.0,
+            sensitivity: 0.01, // 기본 감도 값
         }
     }
 
@@ -270,7 +281,8 @@ impl Component for PitchAnalyzer {
                     self.elapsed_time += 0.1;
 
                     // 여러 주파수 분석
-                    let freqs = analyze_multiple_frequencies(&buffer, sample_rate);
+                    let freqs =
+                        analyze_multiple_frequencies(&buffer, sample_rate, self.sensitivity);
 
                     if !freqs.is_empty() {
                         // 가장 강한 주파수 (첫 번째 요소)
@@ -318,15 +330,65 @@ impl Component for PitchAnalyzer {
 
                 true
             }
+
+            Msg::UpdateSensitivity(value) => {
+                self.sensitivity = value;
+
+                // 감도 값 변경 후 분석기 업데이트
+                if let Some(analyser) = &self.analyser {
+                    // RMS_THRESHOLD를 동적으로 변경할 수 없으므로
+                    // 변경된 감도값은 analyze_multiple_frequencies 호출 시 전달
+                    true
+                } else {
+                    true
+                }
+            }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
+        let on_sensitivity_change = ctx.link().callback(|e: web_sys::Event| {
+            let input = e
+                .target()
+                .unwrap()
+                .dyn_into::<web_sys::HtmlInputElement>()
+                .unwrap();
+            let value = input.value().parse::<f32>().unwrap_or(0.01);
+            Msg::UpdateSensitivity(value)
+        });
+
+        let on_sensitivity_input = ctx.link().callback(|e: web_sys::InputEvent| {
+            let input = e
+                .target()
+                .unwrap()
+                .dyn_into::<web_sys::HtmlInputElement>()
+                .unwrap();
+            let value = input.value().parse::<f32>().unwrap_or(0.01);
+            Msg::UpdateSensitivity(value)
+        });
+
         html! {
             <div>
                 <h1>{ "🎵 실시간 피치 분석기" }</h1>
                 <button onclick={ctx.link().callback(|_| Msg::StartAudio)}>{ "🎤 마이크 시작" }</button>
                 <p>{ &self.pitch }</p>
+
+                <div style="margin: 20px 0;">
+                    <label for="sensitivity">{ "🎚️ 마이크 감도: " }</label>
+                    <input
+                        type="range"
+                        id="sensitivity"
+                        min="0.001"
+                        max="0.1"
+                        step="0.001"
+                        value={self.sensitivity.to_string()}
+                        onchange={on_sensitivity_change}
+                        oninput={on_sensitivity_input}
+                        style="width: 300px;"
+                    />
+                    <span>{ format!("{:.3}", self.sensitivity) }</span>
+                </div>
+
                 <PitchPlot current_freq={self.current_freq} history={VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>())} />
             </div>
         }
