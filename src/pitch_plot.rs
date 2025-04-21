@@ -261,7 +261,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                     let backend = CanvasBackend::with_canvas_object(canvas).unwrap();
                     let root = backend.into_drawing_area();
-                    root.fill(&WHITE).unwrap();
+                    // 차트 배경색 #001117 (매우 어두운 네이비)
+                    root.fill(&RGBColor(0, 17, 23)).unwrap();
 
                     let (_width, height) = root.dim_in_pixel();
 
@@ -355,6 +356,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .x_labels(5)
                         .y_labels(0)
                         .y_label_formatter(&|_| String::new())
+                        .label_style(("sans-serif", 15, &RGBColor(213, 209, 167))) // #d5d1a7
+                        .axis_style(ShapeStyle::from(&RGBColor(80, 80, 80)).stroke_width(2)) // x축과 y축 색상 설정
+                        .light_line_style(ShapeStyle::from(&RGBColor(80, 80, 80)).stroke_width(1))
                         .draw()
                         .unwrap();
 
@@ -362,11 +366,11 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     for (log_freq, label, is_closest) in y_labels.iter() {
                         // 가로선 추가 - 가장 가까운 노트는 다른 색상으로 표시
                         let line_color = if *is_closest {
-                            // 현재 주파수에 가장 가까운 노트는 파란색 라인
-                            RGBColor(100, 149, 237) // 콘플라워 블루
+                            // 현재 주파수에 가장 가까운 노트는 민트색 라인
+                            RGBColor(158, 245, 207) // #9EF5CF
                         } else {
-                            // 나머지는 기존 회색 라인
-                            RGBColor(200, 200, 200)
+                            // 나머지는 어두운 회색 라인
+                            RGBColor(80, 80, 80)
                         };
 
                         let line_width = if *is_closest { 2 } else { 1 };
@@ -387,9 +391,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                         // 가장 가까운 노트는 텍스트 색상도 변경
                         let text_color = if *is_closest {
-                            &RGBColor(65, 105, 225) // 로열 블루
+                            &RGBColor(158, 245, 207) // #9EF5CF
                         } else {
-                            &BLACK
+                            &RGBColor(213, 209, 167) // #d5d1a7
                         };
 
                         // 로그 주파수 값을 정규화하여 Y 좌표로 변환 (0.0 ~ 1.0 범위로)
@@ -463,7 +467,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     // 현재 시간이 표시 범위 내에 있는 경우에만 세로선 표시
                     if current_time >= x_min && current_time <= x_max {
                         // 현재 시간 세로선 스타일 설정
-                        let line_color = RGBColor(50, 180, 50); // 초록색 계열
+                        let line_color = RGBColor(158, 245, 207); // #9EF5CF
                         let line_style = ShapeStyle::from(&line_color).stroke_width(2);
 
                         // 현재 시간 세로선 그리기
@@ -506,12 +510,12 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                             // 첫 번째(가장 강한 주파수)라도 진폭이 0.7 이상인 경우에만 강조
                             let color = if i == 0 && *amplitude >= 0.7 {
-                                // 가장 강한 주파수는 진한 빨간색
-                                RGBColor(255, 0, 0)
+                                // 가장 강한 주파수는 민트색
+                                RGBColor(158, 245, 207) // #9EF5CF
                             } else {
-                                // 나머지는 매우 옅은 회색계열
+                                // 나머지는 진한 회색계열
                                 let alpha = (amplitude * 100.0) as u8 + 40; // 40~140 범위로 더 옅게 조정
-                                RGBColor(200, 200, 200)
+                                RGBColor(120, 120, 120)
                             };
 
                             // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
@@ -536,7 +540,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                     // 현재 모드 표시 (드래그 모드 또는 자동 모드)
                     if !*auto_follow {
-                        let style = TextStyle::from(("sans-serif", 15).into_font()).color(&BLUE);
+                        let style = TextStyle::from(("sans-serif", 15).into_font())
+                            .color(&RGBColor(158, 245, 207)); // #9EF5CF
                         chart
                             .draw_series(std::iter::once(Text::new(
                                 "Drag Mode (Double-click to reset)",

@@ -11,8 +11,8 @@
       font-family: 'Nunito', 'Noto Sans KR', sans-serif;
       margin: 0;
       padding: 0;
-      background-color: #f5f7fa;
-      color: #333;
+      background-color: #11282f;
+      color: #d5d1a7;
     }
     
     .app-container {
@@ -22,19 +22,19 @@
     }
     
     h1 {
-      color: #2c3e50;
+      color: #d5d1a7;
       text-align: center;
       margin-bottom: 30px;
     }
     
     h2 {
-      color: #3498db;
+      color: #d5d1a7;
       margin-top: 0;
     }
     
     button {
-      background-color: #3498db;
-      color: white;
+      background-color: #9EF5CF;
+      color: #001117;
       border: none;
       padding: 10px 20px;
       border-radius: 4px;
@@ -44,7 +44,7 @@
     }
     
     button:hover {
-      background-color: #2980b9;
+      background-color: #8ae0ba;
     }
     
     /* 대시보드 스타일 */
@@ -58,42 +58,43 @@
     .dashboard-item {
       grid-column: span var(--item-width, 1);
       grid-row: span var(--item-height, 1);
-      background-color: white;
+      background-color: #1a2e35;
       border-radius: 8px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
       overflow: hidden;
       transition: transform 0.3s, box-shadow 0.3s;
       display: flex;
       flex-direction: column;
+      border: 1px solid #11282f;
     }
     
     .dashboard-item:hover {
       transform: translateY(-5px);
-      box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3);
     }
     
     /* 대시보드 아이템 헤더 스타일 */
     .dashboard-item-header {
-      background-color: #f0f4f8;
+      background-color: #16272d;
       padding: 10px 15px;
-      border-bottom: 1px solid #e0e6ed;
+      border-bottom: 1px solid #11282f;
       display: flex;
       justify-content: flex-end;
     }
     
     .dashboard-item-header a {
       text-decoration: none;
-      color: #3498db;
+      color: #d5d1a7;
       font-weight: 600;
       font-size: 14px;
-      background-color: rgba(52, 152, 219, 0.1);
+      background-color: rgba(213, 209, 167, 0.1);
       padding: 5px 10px;
       border-radius: 4px;
       transition: all 0.2s;
     }
     
     .dashboard-item-header a:hover {
-      background-color: rgba(52, 152, 219, 0.2);
+      background-color: rgba(213, 209, 167, 0.2);
       transform: translateY(-2px);
     }
     
@@ -112,13 +113,13 @@
     
     .dashboard-card-header {
       padding-bottom: 10px;
-      border-bottom: 1px solid #eee;
+      border-bottom: 1px solid #11282f;
       margin-bottom: 15px;
     }
     
     .dashboard-card-header h3 {
       margin: 0;
-      color: #2c3e50;
+      color: #d5d1a7;
     }
     
     .dashboard-card-content {
@@ -135,7 +136,7 @@
     input[type="range"] {
       -webkit-appearance: none;
       height: 8px;
-      background: #ddd;
+      background: #2c4550;
       border-radius: 4px;
       outline: none;
     }
@@ -144,7 +145,7 @@
       -webkit-appearance: none;
       width: 18px;
       height: 18px;
-      background: #3498db;
+      background: #9EF5CF;
       border-radius: 50%;
       cursor: pointer;
     }
@@ -153,6 +154,7 @@
       width: 100%;
       height: 100%;
       border-radius: 4px;
+      background-color: #001117;
     }
     
     /* 상세 페이지 스타일 */
@@ -160,35 +162,96 @@
       max-width: 1000px;
       margin: 0 auto;
       padding: 30px;
-      background-color: white;
+      background-color: #1a2e35;
       border-radius: 8px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     }
     
     .detail-page h1 {
       text-align: left;
       margin-bottom: 15px;
-      color: #2c3e50;
+      color: #d5d1a7;
     }
     
     .detail-page a {
       display: inline-block;
       margin-bottom: 30px;
       text-decoration: none;
-      color: #3498db;
+      color: #d5d1a7;
       font-weight: 600;
       padding: 8px 16px;
-      background-color: rgba(52, 152, 219, 0.1);
+      background-color: rgba(213, 209, 167, 0.1);
       border-radius: 4px;
       transition: all 0.2s;
     }
     
     .detail-page a:hover {
-      background-color: rgba(52, 152, 219, 0.2);
+      background-color: rgba(213, 209, 167, 0.2);
     }
     
     .detail-page .content {
       padding: 20px 0;
+    }
+    
+    /* 탭 스타일 */
+    .tabs {
+      display: flex;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #11282f;
+    }
+    
+    .tab {
+      padding: 10px 20px;
+      margin-right: 4px;
+      background-color: #16272d;
+      color: #d5d1a7;
+      border-radius: 4px 4px 0 0;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .tab.active {
+      background-color: #9EF5CF;
+      color: #001117;
+    }
+    
+    .tab:hover:not(.active) {
+      background-color: #2c4550;
+    }
+    
+    /* 레이블 스타일 */
+    .label {
+      display: inline-block;
+      padding: 4px 8px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+    
+    .label-meld {
+      background-color: #9EF5CF;
+      color: #001117;
+    }
+    
+    .label-midi {
+      background-color: #d5d1a7;
+      color: #001117;
+    }
+    
+    .label-audio {
+      background-color: #9EF5CF;
+      color: #001117;
+    }
+    
+    .label-reverb {
+      background-color: #9EF5CF;
+      color: #001117;
+    }
+    
+    .label-delay {
+      background-color: #d5d1a7;
+      color: #001117;
     }
     
     /* 반응형 스타일 */
