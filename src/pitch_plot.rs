@@ -119,7 +119,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 let log_per_pixel = freq_range_log / canvas_height as f64;
 
                 // 마우스 이동에 따른 주파수 비율 변화량 계산 (로그 스케일 기반)
-                let dfreq_ratio = (-dy as f64 * log_per_pixel).exp();
+                let dfreq_ratio = (dy as f64 * log_per_pixel).exp();
 
                 // 새 주파수 비율 적용 (곱셈으로 비율 변화 적용)
                 let new_freq_ratio = *freq_ratio * dfreq_ratio;
@@ -323,7 +323,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     // Chart 만들기: y축은 주파수(Hz) 값을 사용
                     let mut chart = ChartBuilder::on(&root)
                         .margin(10)
-                        .set_label_area_size(LabelAreaPosition::Left, 50)
+                        .set_label_area_size(LabelAreaPosition::Left, 60)
                         .set_label_area_size(LabelAreaPosition::Bottom, 30)
                         .build_cartesian_2d(x_min..x_max, min_log..max_log) // 로그 스케일 범위 사용
                         .unwrap();
@@ -356,7 +356,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         .x_labels(5)
                         .y_labels(0)
                         .y_label_formatter(&|_| String::new())
-                        .label_style(("sans-serif", 15, &RGBColor(213, 209, 167))) // #d5d1a7
+                        .label_style(("Lexend", 15, &RGBColor(213, 209, 167))) // #d5d1a7
                         .axis_style(ShapeStyle::from(&RGBColor(80, 80, 80)).stroke_width(2)) // x축과 y축 색상 설정
                         .light_line_style(ShapeStyle::from(&RGBColor(80, 80, 80)).stroke_width(1))
                         .draw()
@@ -386,7 +386,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         // 좌표 변환 직접 계산: 차트 왼쪽 영역에 라벨 배치
                         let font_weight = if *is_closest { "bold" } else { "normal" };
                         let font_size = if *is_closest { 17.0 } else { 15.0 };
-                        let font_desc = format!("{}px {} sans-serif", font_size, font_weight);
+                        let font_desc = format!("{}px {} Lexend", font_size, font_weight);
                         let style = TextStyle::from(font_desc.into_font());
 
                         // 가장 가까운 노트는 텍스트 색상도 변경
@@ -480,7 +480,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                         // // 현재 시간 라벨 표시
                         // let time_label = format!("{:.1}s", current_time);
-                        // let text_style = TextStyle::from(("sans-serif", 14).into_font())
+                        // let text_style = TextStyle::from(("Lexend", 14).into_font())
                         //     .color(&RGBColor(50, 180, 50));
 
                         // chart
@@ -540,7 +540,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                     // 현재 모드 표시 (드래그 모드 또는 자동 모드)
                     if !*auto_follow {
-                        let style = TextStyle::from(("sans-serif", 15).into_font())
+                        let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(158, 245, 207)); // #9EF5CF
                         chart
                             .draw_series(std::iter::once(Text::new(

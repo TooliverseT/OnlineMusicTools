@@ -26,7 +26,7 @@ pub fn navbar() -> Html {
         <nav class="navbar">
             <div class="navbar-container">
                 <Link<Route> classes={classes!("navbar-title")} to={Route::Home}>
-                    {"🎵 온라인 음악 도구"}
+                    {"MusicalMind"}
                 </Link<Route>>
             </div>
         </nav>
@@ -51,8 +51,7 @@ pub fn main_layout() -> Html {
 pub fn pitch_controls_detail() -> Html {
     html! {
         <div class="detail-page">
-            <h1>{"🎚️ 피치 컨트롤 상세 페이지"}</h1>
-            <Link<Route> to={Route::Home}>{"🏠 홈으로 돌아가기"}</Link<Route>>
+            <Link<Route> to={Route::Home}>{"🏠 Back to Home"}</Link<Route>>
             <div class="content">
                 <PitchAnalyzer />
             </div>
@@ -67,10 +66,9 @@ pub fn pitch_plot_detail() -> Html {
     // 실제 구현에서는 저장된 데이터를 불러오거나 API를 통해 데이터를 가져올 수 있음
     html! {
         <div class="detail-page">
-            <h1>{"📊 피치 플롯 상세 페이지"}</h1>
-            <Link<Route> to={Route::Home}>{"🏠 홈으로 돌아가기"}</Link<Route>>
+            <Link<Route> to={Route::Home}>{"🏠 Back to Home"}</Link<Route>>
             <div class="content">
-                <p>{"이 페이지에서는 더 자세한 피치 분석 데이터를 볼 수 있습니다."}</p>
+                <p>{"Detailed pitch analysis data and visualization."}</p>
             </div>
         </div>
     }
@@ -80,8 +78,7 @@ pub fn pitch_plot_detail() -> Html {
 pub fn not_found() -> Html {
     html! {
         <div>
-            <h1>{"404 - 페이지를 찾을 수 없습니다"}</h1>
-            <Link<Route> to={Route::Home}>{"🏠 홈으로 돌아가기"}</Link<Route>>
+            <Link<Route> to={Route::Home}>{"🏠 Back to Home"}</Link<Route>>
         </div>
     }
 }

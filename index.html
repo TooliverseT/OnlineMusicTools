@@ -4,11 +4,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🎵 온라인 음악 도구</title>
+  <title>MusicalMind</title>
   <link data-trunk rel="rust" href="Cargo.toml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;700&family=Nunito:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
   <style>
     body {
-      font-family: 'Nunito', 'Noto Sans KR', sans-serif;
+      font-family: 'Lexend', 'Nunito', 'Noto Sans KR', sans-serif;
       margin: 0;
       padding: 0;
       background-color: #11282f;
@@ -18,14 +21,14 @@
     /* 네비게이션 바 스타일 */
     .navbar {
       background-color: #11282f;
-      padding: 15px 0;
+      padding: 15px 0px 0px 0px;
       position: sticky;
       top: 0;
       z-index: 1000;
     }
     
     .navbar-container {
-      max-width: 1200px;
+      max-width: 1500px;
       margin: 0 auto;
       display: flex;
       align-items: center;
@@ -34,8 +37,10 @@
     }
     
     .navbar-title {
-      font-size: 1.5rem;
-      font-weight: 700;
+      font-family: 'Lexend', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 500;
+      letter-spacing: -0.5px;
       color: #d5d1a7;
       text-decoration: none;
       display: flex;
@@ -47,20 +52,24 @@
     }
     
     .app-container {
-      max-width: 1200px;
+      max-width: 1500px;
       margin: 0 auto;
-      padding: 20px;
+      padding: 0px 20px;
     }
     
     h1 {
+      font-family: 'Lexend', sans-serif;
       color: #d5d1a7;
       text-align: center;
       margin-bottom: 30px;
+      font-weight: 500;
     }
     
     h2 {
       color: #d5d1a7;
       margin-top: 0;
+      font-weight: 500;
+      font-size: 1.2rem;
     }
     
     button {
@@ -68,14 +77,21 @@
       color: #001117;
       border: none;
       padding: 10px 20px;
-      border-radius: 4px;
+      border-radius: 2px;
       cursor: pointer;
-      font-size: 16px;
-      transition: background-color 0.3s;
+      font-family: 'Lexend', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background-color 0.2s;
     }
     
     button:hover {
       background-color: #8ae0ba;
+    }
+    
+    button.active {
+      background-color: #FFBF2A;
+      color: #1D2426;
     }
     
     /* 대시보드 스타일 */
@@ -90,18 +106,18 @@
       grid-column: span var(--item-width, 1);
       grid-row: span var(--item-height, 1);
       background-color: #1a2e35;
-      border-radius: 8px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      border-radius: 2px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
       overflow: hidden;
-      transition: transform 0.3s, box-shadow 0.3s;
+      transition: transform 0.2s, box-shadow 0.2s;
       display: flex;
       flex-direction: column;
       border: 1px solid #11282f;
     }
     
     .dashboard-item:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15);
     }
     
     /* 대시보드 아이템 헤더 스타일 */
@@ -116,11 +132,11 @@
     .dashboard-item-header a {
       text-decoration: none;
       color: #d5d1a7;
-      font-weight: 600;
+      font-weight: 500;
       font-size: 14px;
       background-color: rgba(213, 209, 167, 0.1);
       padding: 5px 10px;
-      border-radius: 4px;
+      border-radius: 2px;
       transition: all 0.2s;
     }
     
@@ -166,16 +182,16 @@
     
     input[type="range"] {
       -webkit-appearance: none;
-      height: 8px;
+      height: 6px;
       background: #2c4550;
-      border-radius: 4px;
+      border-radius: 2px;
       outline: none;
     }
     
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       background: #9EF5CF;
       border-radius: 50%;
       cursor: pointer;
@@ -184,7 +200,7 @@
     canvas {
       width: 100%;
       height: 100%;
-      border-radius: 4px;
+      border-radius: 2px;
       background-color: #001117;
     }
     
@@ -194,8 +210,9 @@
       margin: 0 auto;
       padding: 30px;
       background-color: #1a2e35;
-      border-radius: 8px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+      border-radius: 2px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      border: 1px solid #333333;
     }
     
     .detail-page h1 {
@@ -209,10 +226,10 @@
       margin-bottom: 30px;
       text-decoration: none;
       color: #d5d1a7;
-      font-weight: 600;
+      font-weight: 500;
       padding: 8px 16px;
       background-color: rgba(213, 209, 167, 0.1);
-      border-radius: 4px;
+      border-radius: 2px;
       transition: all 0.2s;
     }
     
@@ -236,7 +253,7 @@
       margin-right: 4px;
       background-color: #16272d;
       color: #d5d1a7;
-      border-radius: 4px 4px 0 0;
+      border-radius: 2px 2px 0 0;
       cursor: pointer;
       transition: background-color 0.2s;
     }
@@ -254,9 +271,9 @@
     .label {
       display: inline-block;
       padding: 4px 8px;
-      font-size: 14px;
-      font-weight: 600;
-      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 2px;
       margin-right: 8px;
     }
     
@@ -300,11 +317,10 @@
       }
     }
   </style>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
  
   <div id="app"></div>
-  <script src="/sing-tuner.js"></script>
+  <script src="/musical-mind.js"></script>
 </body>
 </html>

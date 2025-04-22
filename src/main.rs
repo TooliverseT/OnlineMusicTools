@@ -435,7 +435,6 @@ impl Component for PitchAnalyzer {
 
         html! {
             <div class="app-container">
-                <h1>{ "🎵 온라인 음악 도구" }</h1>
                 <Dashboard layout={layout} />
             </div>
         }
@@ -447,7 +446,16 @@ impl Component for PitchAnalyzer {
 fn app() -> Html {
     html! {
         <BrowserRouter>
-            <crate::routes::MainLayout />
+            <div class="navbar">
+                <div class="navbar-container">
+                    <Link<Route> to={Route::Home} classes="navbar-title">
+                        { "MusicalMind" }
+                    </Link<Route>>
+                </div>
+            </div>
+            <div class="app-container">
+                <Switch<Route> render={switch} />
+            </div>
         </BrowserRouter>
     }
 }
