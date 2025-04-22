@@ -447,7 +447,7 @@ impl Component for PitchAnalyzer {
 fn app() -> Html {
     html! {
         <BrowserRouter>
-            <Switch<Route> render={switch} />
+            <crate::routes::MainLayout />
         </BrowserRouter>
     }
 }

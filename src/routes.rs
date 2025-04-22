@@ -19,6 +19,33 @@ pub enum Route {
     NotFound,
 }
 
+// 네비게이션 바 컴포넌트
+#[function_component(Navbar)]
+pub fn navbar() -> Html {
+    html! {
+        <nav class="navbar">
+            <div class="navbar-container">
+                <Link<Route> classes={classes!("navbar-title")} to={Route::Home}>
+                    {"🎵 온라인 음악 도구"}
+                </Link<Route>>
+            </div>
+        </nav>
+    }
+}
+
+// 메인 레이아웃 컴포넌트
+#[function_component(MainLayout)]
+pub fn main_layout() -> Html {
+    html! {
+        <>
+            <Navbar />
+            <div class="app-container">
+                <Switch<Route> render={switch} />
+            </div>
+        </>
+    }
+}
+
 // 상세 페이지 컴포넌트 - 피치 컨트롤
 #[function_component(PitchControlsDetail)]
 pub fn pitch_controls_detail() -> Html {
