@@ -206,10 +206,12 @@ pub struct PitchAnalyzer {
     history: VecDeque<(f64, Vec<(f64, f32)>)>,
     canvas_ref: NodeRef,
     elapsed_time: f64,
-    current_freq: f64, // 🔥 가장 강한 주파수
-    sensitivity: f32,  // 🎚️ 마이크 입력 감도 설정
-    show_links: bool,  // 🔗 링크 표시 여부
-    mic_active: bool,  // 🎤 마이크 활성화 상태
+    current_freq: f64,                        // 🔥 가장 강한 주파수
+    sensitivity: f32,                         // 🎚️ 마이크 입력 감도 설정
+    show_links: bool,                         // 🔗 링크 표시 여부
+    mic_active: bool,                         // 🎤 마이크 활성화 상태
+    monitor_active: bool,                     // 🔊 마이크 모니터링 활성화 상태
+    speaker_node: Option<web_sys::AudioNode>, // 스피커 출력용 노드
 }
 
 pub enum Msg {
@@ -219,7 +221,8 @@ pub enum Msg {
     UpdatePitch,
     AudioReady(AudioContext, AnalyserNode, MediaStream),
     UpdateSensitivity(f32),
-    ToggleLinks, // 🔗 링크 표시 여부 토글
+    ToggleLinks,   // 🔗 링크 표시 여부 토글
+    ToggleMonitor, // 🔊 마이크 모니터링 토글
 }
 
 impl Component for PitchAnalyzer {
@@ -264,9 +267,20 @@ impl Component for PitchAnalyzer {
             toggle_callback.emit(e.clone());
         });
 
+        // 모니터링 토글 이벤트 리스너
+        let monitor_link = ctx.link().clone();
+        let monitor_callback = Callback::from(move |_: web_sys::Event| {
+            monitor_link.send_message(Msg::ToggleMonitor);
+        });
+
+        let monitor_listener = EventListener::new(&document, "toggleMonitor", move |e| {
+            monitor_callback.emit(e.clone());
+        });
+
         toggle_audio_listener.forget();
         sensitivity_listener.forget();
         toggle_listener.forget();
+        monitor_listener.forget();
 
         Self {
             audio_ctx: None,
@@ -278,9 +292,11 @@ impl Component for PitchAnalyzer {
             canvas_ref: NodeRef::default(),
             elapsed_time: 0.0,
             current_freq: 0.0,
-            sensitivity: 0.01, // 기본 감도 값
-            show_links: true,  // 기본적으로 링크 표시
-            mic_active: false, // 처음에는 마이크 비활성화 상태
+            sensitivity: 0.01,     // 기본 감도 값
+            show_links: true,      // 기본적으로 링크 표시
+            mic_active: false,     // 처음에는 마이크 비활성화 상태
+            monitor_active: false, // 처음에는 모니터링 비활성화 상태
+            speaker_node: None,    // 스피커 노드는 초기화되지 않음
         }
     }
 
@@ -382,6 +398,19 @@ impl Component for PitchAnalyzer {
                 self._stream = Some(stream);
                 self.mic_active = true;
 
+                // 스트림 복제: 하나는 분석용, 하나는 모니터링용으로 분리
+                if let Some(ctx) = &self.audio_ctx {
+                    if let Some(stream) = &self._stream {
+                        // 웹 오디오 그래프 구성:
+                        // 1. 마이크 입력 -> 분석기 (분석 데이터 생성)
+                        // 2. 스피커 출력은 필요시 별도로 연결 (ToggleMonitor에서 처리)
+                        //
+                        // 이렇게 하면 마이크와 스피커가 서로 다른 경로로 처리되어
+                        // 에코 캔슬링으로 인한 문제가 발생하지 않습니다.
+                        web_sys::console::log_1(&"Audio graph configured for analysis".into());
+                    }
+                }
+
                 let link = ctx.link().clone();
                 gloo::timers::callback::Interval::new(100, move || {
                     link.send_message(Msg::UpdatePitch);
@@ -436,6 +465,97 @@ impl Component for PitchAnalyzer {
                 } else {
                     // 마이크가 비활성화된 상태면 활성화
                     ctx.link().send_message(Msg::StartAudio);
+                }
+
+                false
+            }
+
+            Msg::ToggleMonitor => {
+                // 마이크가 비활성화 상태라면 모니터링을 할 수 없음
+                if !self.mic_active {
+                    web_sys::console::log_1(
+                        &"Cannot toggle monitor without active microphone".into(),
+                    );
+                    return false;
+                }
+
+                self.monitor_active = !self.monitor_active;
+
+                if let (Some(audio_ctx), Some(analyser)) = (&self.audio_ctx, &self.analyser) {
+                    if self.monitor_active {
+                        // 모니터링 활성화: 새로운 연결 설정
+                        if let Some(stream) = &self._stream {
+                            // 분석기 노드를 그대로 두고, 스트림에서 새로운 소스 노드를 생성
+                            match audio_ctx.clone().create_media_stream_source(stream) {
+                                Ok(monitor_source) => {
+                                    // 게인 노드 생성
+                                    match audio_ctx.clone().create_gain() {
+                                        Ok(gain_node) => {
+                                            // 볼륨 설정 (마이크 피드백 방지를 위해 낮게 설정)
+                                            let gain_param = gain_node.gain();
+                                            gain_param.set_value(0.5);
+
+                                            // 소스를 게인 노드에 직접 연결
+                                            if monitor_source
+                                                .connect_with_audio_node(&gain_node)
+                                                .is_err()
+                                            {
+                                                web_sys::console::log_1(
+                                                    &"Failed to connect source to gain node".into(),
+                                                );
+                                                self.monitor_active = false;
+                                                return false;
+                                            }
+
+                                            // 게인 노드를 출력에 연결
+                                            if gain_node
+                                                .connect_with_audio_node(
+                                                    &audio_ctx.clone().destination(),
+                                                )
+                                                .is_err()
+                                            {
+                                                web_sys::console::log_1(
+                                                    &"Failed to connect gain node to destination"
+                                                        .into(),
+                                                );
+                                                self.monitor_active = false;
+                                                return false;
+                                            }
+
+                                            // 스피커 노드 저장
+                                            self.speaker_node = Some(gain_node.into());
+                                            web_sys::console::log_1(
+                                                &"Monitor activated with separate source".into(),
+                                            );
+                                        }
+                                        Err(_) => {
+                                            web_sys::console::log_1(
+                                                &"Failed to create gain node".into(),
+                                            );
+                                            self.monitor_active = false;
+                                            return false;
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    web_sys::console::log_1(
+                                        &"Failed to create monitor source".into(),
+                                    );
+                                    self.monitor_active = false;
+                                    return false;
+                                }
+                            }
+                        }
+                    } else {
+                        // 모니터링 비활성화: 연결 해제
+                        if let Some(speaker_node) = &self.speaker_node {
+                            // 웹오디오 API는 disconnect() 메서드로 모든 연결을 해제
+                            speaker_node.disconnect();
+                            self.speaker_node = None;
+                            web_sys::console::log_1(&"Monitor deactivated".into());
+                        }
+                    }
+                    return true;
                 }
 
                 false

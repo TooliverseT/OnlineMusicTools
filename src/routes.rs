@@ -106,6 +106,7 @@ pub fn pitch_controls() -> Html {
     let show_links = use_state(|| true);
     let show_sensitivity = use_state(|| false);
     let mic_active = use_state(|| false);
+    let monitor_active = use_state(|| false);
 
     let on_sensitivity_change = {
         let sensitivity = sensitivity.clone();
@@ -217,6 +218,36 @@ pub fn pitch_controls() -> Html {
         })
     };
 
+    let toggle_monitor = {
+        let monitor_active = monitor_active.clone();
+        let mic_active = mic_active.clone();
+        Callback::from(move |_| {
+            // 마이크 비활성 상태에서는 모니터링 활성화 불가
+            if !*mic_active {
+                return;
+            }
+
+            // 모니터링 상태 토글
+            let new_state = !*monitor_active;
+            monitor_active.set(new_state);
+
+            // 모니터링 토글 이벤트 발생
+            let event = CustomEvent::new_with_event_init_dict(
+                "toggleMonitor",
+                CustomEventInit::new()
+                    .bubbles(true)
+                    .detail(&JsValue::from_bool(new_state)),
+            )
+            .unwrap();
+            web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .dispatch_event(&event)
+                .unwrap();
+        })
+    };
+
     html! {
         <div class="pitch-controls navbar-item">
             <div class="navbar-controls-buttons">
@@ -226,6 +257,14 @@ pub fn pitch_controls() -> Html {
                     title={if *mic_active { "마이크 비활성화" } else { "마이크 활성화" }}
                 >
                     { if *mic_active { "🔴" } else { "🎤" } }
+                </button>
+                <button
+                    class={classes!("icon-button", if *monitor_active { "monitor-active" } else { "" })}
+                    onclick={toggle_monitor}
+                    title={if *monitor_active { "모니터링 비활성화" } else { "모니터링 활성화" }}
+                    disabled={!*mic_active}
+                >
+                    { if *monitor_active { "🔊" } else { "🔈" } }
                 </button>
                 <button class="icon-button" onclick={toggle_links} title={if *show_links { "링크 숨기기" } else { "링크 표시하기" }}>
                     { if *show_links { "🔗" } else { "🔓" } }
@@ -249,7 +288,7 @@ pub fn pitch_controls() -> Html {
                                             onchange={on_sensitivity_change}
                                             oninput={on_sensitivity_input}
                                         />
-                                        <span class="sensitivity-value">{ format!("{:.3}", *sensitivity) }</span>
+                                        <span>{ format!("{:.3}", *sensitivity) }</span>
                                     </div>
                                 </div>
                             }
