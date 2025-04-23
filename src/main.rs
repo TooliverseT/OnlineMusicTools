@@ -1,6 +1,7 @@
 use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::pitch_plot::PitchPlot;
 use crate::routes::{switch, Route};
+use gloo::events::EventListener;
 use js_sys::{Float32Array, Promise};
 use log::info;
 use std::collections::VecDeque;
@@ -208,10 +209,13 @@ pub struct PitchAnalyzer {
     current_freq: f64, // 🔥 가장 강한 주파수
     sensitivity: f32,  // 🎚️ 마이크 입력 감도 설정
     show_links: bool,  // 🔗 링크 표시 여부
+    mic_active: bool,  // 🎤 마이크 활성화 상태
 }
 
 pub enum Msg {
     StartAudio,
+    StopAudio,   // 🔇 마이크 비활성화 메시지 추가
+    ToggleAudio, // 🎤 마이크 활성화/비활성화 토글
     UpdatePitch,
     AudioReady(AudioContext, AnalyserNode, MediaStream),
     UpdateSensitivity(f32),
@@ -222,7 +226,48 @@ impl Component for PitchAnalyzer {
     type Message = Msg;
     type Properties = ();
 
-    fn create(_ctx: &Context<Self>) -> Self {
+    fn create(ctx: &Context<Self>) -> Self {
+        // 이벤트 리스너 추가 - 커스텀 이벤트 수신
+        let link = ctx.link().clone();
+        let window = web_sys::window().unwrap();
+        let document = window.document().unwrap();
+
+        // 마이크 토글 이벤트 리스너
+        let toggle_audio_callback = Callback::from(move |_: web_sys::Event| {
+            link.send_message(Msg::ToggleAudio);
+        });
+
+        let toggle_audio_listener = EventListener::new(&document, "toggleAudio", move |e| {
+            toggle_audio_callback.emit(e.clone());
+        });
+
+        // 감도 조절 이벤트 리스너
+        let sensitivity_link = ctx.link().clone();
+        let sensitivity_callback = Callback::from(move |e: web_sys::Event| {
+            let custom_event = e.dyn_into::<web_sys::CustomEvent>().unwrap();
+            let detail = custom_event.detail();
+            let value = js_sys::Number::from(detail).value_of() as f32;
+            sensitivity_link.send_message(Msg::UpdateSensitivity(value));
+        });
+
+        let sensitivity_listener = EventListener::new(&document, "updateSensitivity", move |e| {
+            sensitivity_callback.emit(e.clone());
+        });
+
+        // 링크 토글 이벤트 리스너
+        let toggle_link = ctx.link().clone();
+        let toggle_callback = Callback::from(move |_: web_sys::Event| {
+            toggle_link.send_message(Msg::ToggleLinks);
+        });
+
+        let toggle_listener = EventListener::new(&document, "toggleLinks", move |e| {
+            toggle_callback.emit(e.clone());
+        });
+
+        toggle_audio_listener.forget();
+        sensitivity_listener.forget();
+        toggle_listener.forget();
+
         Self {
             audio_ctx: None,
             analyser: None,
@@ -235,12 +280,18 @@ impl Component for PitchAnalyzer {
             current_freq: 0.0,
             sensitivity: 0.01, // 기본 감도 값
             show_links: true,  // 기본적으로 링크 표시
+            mic_active: false, // 처음에는 마이크 비활성화 상태
         }
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             Msg::StartAudio => {
+                // 이미 활성화된 경우 무시
+                if self.mic_active {
+                    return false;
+                }
+
                 let link = ctx.link().clone();
                 let mut constraints = MediaStreamConstraints::new();
                 constraints.set_audio(&JsValue::TRUE);
@@ -329,6 +380,7 @@ impl Component for PitchAnalyzer {
                 self.audio_ctx = Some(audio_ctx);
                 self.analyser = Some(analyser);
                 self._stream = Some(stream);
+                self.mic_active = true;
 
                 let link = ctx.link().clone();
                 gloo::timers::callback::Interval::new(100, move || {
@@ -348,63 +400,53 @@ impl Component for PitchAnalyzer {
                 self.sensitivity = value;
                 true
             }
+
+            Msg::StopAudio => {
+                // 오디오 컨텍스트가 있으면 정지
+                if let Some(ctx) = &self.audio_ctx {
+                    let _ = ctx.close();
+                }
+
+                // 스트림 트랙 정지
+                if let Some(stream) = &self._stream {
+                    let tracks = stream.get_audio_tracks();
+                    for i in 0..tracks.length() {
+                        let track_js = tracks.get(i);
+                        let track = web_sys::MediaStreamTrack::from(track_js);
+                        track.stop();
+                    }
+                }
+
+                // 상태 초기화
+                self.audio_ctx = None;
+                self.analyser = None;
+                self._stream = None;
+                self.mic_active = false;
+                self.pitch = "🎤 음성 입력 대기...".to_string();
+                self.prev_freqs.clear();
+                self.current_freq = 0.0;
+
+                true
+            }
+
+            Msg::ToggleAudio => {
+                if self.mic_active {
+                    // 마이크가 활성화된 상태면 비활성화
+                    ctx.link().send_message(Msg::StopAudio);
+                } else {
+                    // 마이크가 비활성화된 상태면 활성화
+                    ctx.link().send_message(Msg::StartAudio);
+                }
+
+                false
+            }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        let on_sensitivity_change = ctx.link().callback(|e: web_sys::Event| {
-            let input = e
-                .target()
-                .unwrap()
-                .dyn_into::<web_sys::HtmlInputElement>()
-                .unwrap();
-            let value = input.value().parse::<f32>().unwrap_or(0.01);
-            Msg::UpdateSensitivity(value)
-        });
-
-        let on_sensitivity_input = ctx.link().callback(|e: web_sys::InputEvent| {
-            let input = e
-                .target()
-                .unwrap()
-                .dyn_into::<web_sys::HtmlInputElement>()
-                .unwrap();
-            let value = input.value().parse::<f32>().unwrap_or(0.01);
-            Msg::UpdateSensitivity(value)
-        });
-
         let current_freq = self.current_freq;
         let history = VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>());
         let show_links = self.show_links;
-
-        // 피치 분석 컨트롤 컴포넌트
-        let pitch_controls = html! {
-            <div class="pitch-controls">
-                <h2>{ "🎵 실시간 피치 분석기" }</h2>
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button onclick={ctx.link().callback(|_| Msg::StartAudio)}>{ "🎤 마이크 시작" }</button>
-                    <button onclick={ctx.link().callback(|_| Msg::ToggleLinks)}>
-                        { if show_links { "🔗 링크 숨기기" } else { "🔗 링크 표시하기" } }
-                    </button>
-                </div>
-                <p>{ &self.pitch }</p>
-
-                <div style="margin: 20px 0;">
-                    <label for="sensitivity">{ "🎚️ 마이크 감도: " }</label>
-                    <input
-                        type="range"
-                        id="sensitivity"
-                        min="0.001"
-                        max="0.1"
-                        step="0.001"
-                        value={self.sensitivity.to_string()}
-                        onchange={on_sensitivity_change}
-                        oninput={on_sensitivity_input}
-                        style="width: 300px;"
-                    />
-                    <span>{ format!("{:.3}", self.sensitivity) }</span>
-                </div>
-            </div>
-        };
 
         // 피치 플롯 컴포넌트
         let pitch_plot = html! {
@@ -412,24 +454,14 @@ impl Component for PitchAnalyzer {
         };
 
         // 대시보드 레이아웃 구성
-        let items = vec![
-            DashboardItem {
-                id: "pitch-controls".to_string(),
-                component: pitch_controls,
-                width: 1,
-                height: 1,
-                route: Some(Route::PitchControls),
-                show_link: self.show_links,
-            },
-            DashboardItem {
-                id: "pitch-plot".to_string(),
-                component: pitch_plot,
-                width: 2,
-                height: 2,
-                route: Some(Route::PitchPlot),
-                show_link: self.show_links,
-            },
-        ];
+        let items = vec![DashboardItem {
+            id: "pitch-plot".to_string(),
+            component: pitch_plot,
+            width: 2,
+            height: 2,
+            route: Some(Route::PitchPlot),
+            show_link: self.show_links,
+        }];
 
         let layout = DashboardLayout { items, columns: 3 };
 
@@ -446,16 +478,7 @@ impl Component for PitchAnalyzer {
 fn app() -> Html {
     html! {
         <BrowserRouter>
-            <div class="navbar">
-                <div class="navbar-container">
-                    <Link<Route> to={Route::Home} classes="navbar-title">
-                        { "MusicalMind" }
-                    </Link<Route>>
-                </div>
-            </div>
-            <div class="app-container">
-                <Switch<Route> render={switch} />
-            </div>
+            <Switch<Route> render={switch} />
         </BrowserRouter>
     }
 }
