@@ -16,7 +16,7 @@ serde_json = "1.0.139"
 serde_yaml = "0.9.34+deprecated"
 wasm-logger = "0.2.0"
 log = "0.4.26"
-web-sys = { version = "0.3.69", features = ["HtmlSelectElement", "HtmlInputElement", "EventTarget", "Navigator", "Clipboard", "AudioContext", "MediaStream", "MediaStreamAudioSourceNode", "MediaStreamConstraints", "AnalyserNode", "MediaDevices", "CustomEvent", "CustomEventInit", "MediaStreamTrack", "GainNode", "AudioDestinationNode", "AudioParam"] }
+web-sys = { version = "0.3.69", features = ["HtmlSelectElement", "HtmlInputElement", "EventTarget", "Navigator", "Clipboard", "AudioContext", "MediaStream", "MediaStreamAudioSourceNode", "MediaStreamConstraints", "AnalyserNode", "MediaDevices", "CustomEvent", "CustomEventInit", "MediaStreamTrack", "GainNode", "AudioDestinationNode", "AudioParam", "DelayNode", "BiquadFilterNode", "BiquadFilterType"] }
 wasm-bindgen-futures = "0.4.50"
 
 plotters = "0.3"

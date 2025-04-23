@@ -211,7 +211,7 @@ pub struct PitchAnalyzer {
     show_links: bool,                         // 🔗 링크 표시 여부
     mic_active: bool,                         // 🎤 마이크 활성화 상태
     monitor_active: bool,                     // 🔊 마이크 모니터링 활성화 상태
-    speaker_node: Option<web_sys::AudioNode>, // 스피커 출력용 노드
+    speaker_node: Option<web_sys::GainNode>,  // 스피커 출력용 노드
 }
 
 pub enum Msg {
@@ -223,6 +223,7 @@ pub enum Msg {
     UpdateSensitivity(f32),
     ToggleLinks,   // 🔗 링크 표시 여부 토글
     ToggleMonitor, // 🔊 마이크 모니터링 토글
+    UpdateSpeakerVolume(f32), // 🔊 스피커 볼륨 업데이트
 }
 
 impl Component for PitchAnalyzer {
@@ -277,10 +278,24 @@ impl Component for PitchAnalyzer {
             monitor_callback.emit(e.clone());
         });
 
+        // 스피커 볼륨 조절 이벤트 리스너
+        let volume_link = ctx.link().clone();
+        let volume_callback = Callback::from(move |e: web_sys::Event| {
+            let custom_event = e.dyn_into::<web_sys::CustomEvent>().unwrap();
+            let detail = custom_event.detail();
+            let value = js_sys::Number::from(detail).value_of() as f32;
+            volume_link.send_message(Msg::UpdateSpeakerVolume(value));
+        });
+
+        let volume_listener = EventListener::new(&document, "updateSpeakerVolume", move |e| {
+            volume_callback.emit(e.clone());
+        });
+
         toggle_audio_listener.forget();
         sensitivity_listener.forget();
         toggle_listener.forget();
         monitor_listener.forget();
+        volume_listener.forget();
 
         Self {
             audio_ctx: None,
@@ -488,59 +503,85 @@ impl Component for PitchAnalyzer {
                             // 분석기 노드를 그대로 두고, 스트림에서 새로운 소스 노드를 생성
                             match audio_ctx.clone().create_media_stream_source(stream) {
                                 Ok(monitor_source) => {
-                                    // 게인 노드 생성
-                                    match audio_ctx.clone().create_gain() {
-                                        Ok(gain_node) => {
-                                            // 볼륨 설정 (마이크 피드백 방지를 위해 낮게 설정)
-                                            let gain_param = gain_node.gain();
-                                            gain_param.set_value(0.5);
-
-                                            // 소스를 게인 노드에 직접 연결
-                                            if monitor_source
-                                                .connect_with_audio_node(&gain_node)
-                                                .is_err()
-                                            {
-                                                web_sys::console::log_1(
-                                                    &"Failed to connect source to gain node".into(),
-                                                );
-                                                self.monitor_active = false;
-                                                return false;
+                                    // 1. 로우패스 필터 생성 (고주파 제거)
+                                    match audio_ctx.clone().create_biquad_filter() {
+                                        Ok(filter_node) => {
+                                            // 로우패스 필터 타입 설정 (0은 lowpass)
+                                            filter_node.set_type(web_sys::BiquadFilterType::Lowpass);
+                                            filter_node.frequency().set_value(1500.0); // 1.5kHz 이상 감쇠
+                                            filter_node.q().set_value(1.0);
+                                            
+                                            // 2. 딜레이 노드 생성 (약간의 지연 추가)
+                                            match audio_ctx.clone().create_delay() {
+                                                Ok(delay_node) => {
+                                                    // 50ms 딜레이 설정
+                                                    delay_node.delay_time().set_value(0.05);
+                                                    
+                                                    // 3. 게인 노드 생성 (볼륨 조절)
+                                                    match audio_ctx.clone().create_gain() {
+                                                        Ok(gain_node) => {
+                                                            // 볼륨 설정 (피드백 방지를 위해 매우 낮게 설정)
+                                                            let gain_param = gain_node.gain();
+                                                            gain_param.set_value(0.02); // 2% 볼륨으로 감소
+                                                            
+                                                            // 오디오 그래프 연결:
+                                                            // 소스 -> 필터 -> 딜레이 -> 게인 -> 출력
+                                                            
+                                                            // 소스를 필터에 연결
+                                                            if monitor_source.connect_with_audio_node(&filter_node).is_err() {
+                                                                web_sys::console::log_1(&"Failed to connect source to filter".into());
+                                                                self.monitor_active = false;
+                                                                return false;
+                                                            }
+                                                            
+                                                            // 필터를 딜레이에 연결
+                                                            if filter_node.connect_with_audio_node(&delay_node).is_err() {
+                                                                web_sys::console::log_1(&"Failed to connect filter to delay".into());
+                                                                self.monitor_active = false;
+                                                                return false;
+                                                            }
+                                                            
+                                                            // 딜레이를 게인에 연결
+                                                            if delay_node.connect_with_audio_node(&gain_node).is_err() {
+                                                                web_sys::console::log_1(&"Failed to connect delay to gain".into());
+                                                                self.monitor_active = false;
+                                                                return false;
+                                                            }
+                                                            
+                                                            // 게인 노드를 출력에 연결
+                                                            if gain_node.connect_with_audio_node(&audio_ctx.clone().destination()).is_err() {
+                                                                web_sys::console::log_1(&"Failed to connect gain to destination".into());
+                                                                self.monitor_active = false;
+                                                                return false;
+                                                            }
+                                                            
+                                                            // 스피커 노드 저장 (나중에 연결 해제용)
+                                                            self.speaker_node = Some(gain_node);
+                                                            web_sys::console::log_1(&"Monitor activated with anti-feedback measures".into());
+                                                        }
+                                                        Err(_) => {
+                                                            web_sys::console::log_1(&"Failed to create gain node".into());
+                                                            self.monitor_active = false;
+                                                            return false;
+                                                        }
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    web_sys::console::log_1(&"Failed to create delay node".into());
+                                                    self.monitor_active = false;
+                                                    return false;
+                                                }
                                             }
-
-                                            // 게인 노드를 출력에 연결
-                                            if gain_node
-                                                .connect_with_audio_node(
-                                                    &audio_ctx.clone().destination(),
-                                                )
-                                                .is_err()
-                                            {
-                                                web_sys::console::log_1(
-                                                    &"Failed to connect gain node to destination"
-                                                        .into(),
-                                                );
-                                                self.monitor_active = false;
-                                                return false;
-                                            }
-
-                                            // 스피커 노드 저장
-                                            self.speaker_node = Some(gain_node.into());
-                                            web_sys::console::log_1(
-                                                &"Monitor activated with separate source".into(),
-                                            );
                                         }
                                         Err(_) => {
-                                            web_sys::console::log_1(
-                                                &"Failed to create gain node".into(),
-                                            );
+                                            web_sys::console::log_1(&"Failed to create filter node".into());
                                             self.monitor_active = false;
                                             return false;
                                         }
                                     }
                                 }
                                 Err(_) => {
-                                    web_sys::console::log_1(
-                                        &"Failed to create monitor source".into(),
-                                    );
+                                    web_sys::console::log_1(&"Failed to create monitor source".into());
                                     self.monitor_active = false;
                                     return false;
                                 }
@@ -559,6 +600,18 @@ impl Component for PitchAnalyzer {
                 }
 
                 false
+            }
+
+            Msg::UpdateSpeakerVolume(value) => {
+                if let Some(gain_node) = &self.speaker_node {
+                    // 값이 0.0~1.0 범위를 벗어나지 않도록 보장
+                    let volume = value.max(0.0).min(1.0);
+                    gain_node.gain().set_value(volume);
+                    web_sys::console::log_1(&format!("Speaker volume updated to: {:.2}", volume).into());
+                } else {
+                    web_sys::console::log_1(&"Cannot update volume - speaker not initialized".into());
+                }
+                true
             }
         }
     }
