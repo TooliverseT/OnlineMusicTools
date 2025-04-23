@@ -44,9 +44,12 @@ pub fn main_layout() -> Html {
     let location = use_location().unwrap();
     let route = Route::recognize(&location.path()).unwrap_or(Route::NotFound);
 
+    // 현재 라우트에 따른 컨텐츠 선택
     let content = match route {
         Route::Home => html! { <PitchAnalyzer /> },
-        _ => html! { <Switch<Route> render={switch} /> },
+        Route::PitchControls => html! { <PitchControlsDetail /> },
+        Route::PitchPlot => html! { <PitchPlotDetail /> },
+        Route::NotFound => html! { <NotFound /> },
     };
 
     html! {
@@ -261,10 +264,5 @@ pub fn pitch_controls() -> Html {
 }
 
 pub fn switch(routes: Route) -> Html {
-    match routes {
-        Route::Home => html! { <MainLayout /> },
-        Route::PitchControls => html! { <PitchControlsDetail /> },
-        Route::PitchPlot => html! { <PitchPlotDetail /> },
-        Route::NotFound => html! { <NotFound /> },
-    }
+    html! { <MainLayout /> }
 }
