@@ -548,17 +548,9 @@ impl Component for PitchAnalyzer {
 
                 let link = ctx.link().clone();
                 
-                // 이곳에서 is_recording 상태를 확인하고, 필요한 값만 클로저에 전달
-                let recording_active = self.is_recording;
-                let elapsed_time_clone = self.elapsed_time.clone();
-                
+                // 오디오 분석 인터벌 설정 - 녹음 시간 업데이트는 별도로 처리
                 gloo::timers::callback::Interval::new(100, move || {
                     link.send_message(Msg::UpdatePitch);
-                    
-                    // 녹음 중인 경우 시간 업데이트
-                    if recording_active {
-                        link.send_message(Msg::UpdatePlaybackTime(elapsed_time_clone));
-                    }
                 })
                 .forget();
 
@@ -885,11 +877,20 @@ impl Component for PitchAnalyzer {
                     let link = ctx.link().clone();
                     let audio_element_clone = audio_element.clone();
                     
-                    // 100ms 간격으로 재생 시간 업데이트
+                    // 이전 인터벌이 있었다면 클리어하기 위한 준비
+                    
+                    // 100ms 간격으로 재생 시간 업데이트 - 여기서만 UpdatePlaybackTime 호출
+                    let mut last_time = -1.0; // 마지막으로 업데이트한 시간 (초기값은 유효하지 않은 값)
+                    
                     let interval_handle = gloo::timers::callback::Interval::new(100, move || {
-                        // 직접 current_time 값을 사용
+                        // 현재 재생 시간 가져오기
                         let current_time = audio_element_clone.current_time();
-                        link.send_message(Msg::UpdatePlaybackTime(current_time));
+                        
+                        // 플레이백 시간이 변경되었고 0으로 돌아가지 않은 경우에만 업데이트 메시지 전송
+                        if current_time != last_time && (last_time == -1.0 || current_time > 0.0) {
+                            link.send_message(Msg::UpdatePlaybackTime(current_time));
+                            last_time = current_time;
+                        }
                         
                         // 재생이 끝났는지 확인
                         if audio_element_clone.ended() {
