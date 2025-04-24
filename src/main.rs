@@ -212,6 +212,16 @@ pub struct PitchAnalyzer {
     mic_active: bool,                         // 🎤 마이크 활성화 상태
     monitor_active: bool,                     // 🔊 마이크 모니터링 활성화 상태
     speaker_node: Option<web_sys::GainNode>,  // 스피커 출력용 노드
+    
+    // 오디오 녹음 관련 필드
+    is_recording: bool,                       // 녹음 중인지 여부
+    is_playing: bool,                         // 재생 중인지 여부
+    recorder: Option<web_sys::MediaRecorder>, // 미디어 레코더
+    recorded_chunks: Vec<web_sys::Blob>,      // 녹음된 오디오 청크
+    recorded_audio_url: Option<String>,       // 녹음된 오디오 URL
+    audio_element: Option<web_sys::HtmlAudioElement>, // 오디오 재생 요소
+    playback_time: f64,                       // 재생 위치 (초)
+    last_recording_time: f64,                 // 마지막 녹음 위치 (초)
 }
 
 pub enum Msg {
@@ -224,6 +234,19 @@ pub enum Msg {
     ToggleLinks,   // 🔗 링크 표시 여부 토글
     ToggleMonitor, // 🔊 마이크 모니터링 토글
     UpdateSpeakerVolume(f32), // 🔊 스피커 볼륨 업데이트
+    
+    // 녹음 관련 메시지
+    StartRecording,          // 녹음 시작
+    StopRecording,           // 녹음 중지
+    RecordingDataAvailable(web_sys::Blob), // 녹음 데이터 가용
+    RecordingComplete(String), // 녹음 완료 (오디오 URL)
+    
+    // 재생 관련 메시지
+    TogglePlayback,          // 재생/일시정지 토글
+    StartPlayback,           // 재생 시작
+    PausePlayback,           // 재생 일시정지
+    UpdatePlaybackTime(f64), // 재생 시간 업데이트
+    PlaybackEnded,           // 재생 완료
 }
 
 impl Component for PitchAnalyzer {
@@ -291,6 +314,26 @@ impl Component for PitchAnalyzer {
             volume_callback.emit(e.clone());
         });
 
+        // 재생 토글 이벤트 리스너
+        let playback_link = ctx.link().clone();
+        let playback_callback = Callback::from(move |e: web_sys::Event| {
+            let custom_event = e.dyn_into::<web_sys::CustomEvent>().unwrap();
+            let detail = custom_event.detail();
+            let is_playing = js_sys::Boolean::from(detail).value_of();
+            
+            if is_playing {
+                playback_link.send_message(Msg::StartPlayback);
+            } else {
+                playback_link.send_message(Msg::PausePlayback);
+            }
+        });
+        
+        let playback_listener = EventListener::new(&document, "togglePlayback", move |e| {
+            playback_callback.emit(e.clone());
+        });
+        
+        playback_listener.forget();
+
         toggle_audio_listener.forget();
         sensitivity_listener.forget();
         toggle_listener.forget();
@@ -312,6 +355,16 @@ impl Component for PitchAnalyzer {
             mic_active: false,     // 처음에는 마이크 비활성화 상태
             monitor_active: false, // 처음에는 모니터링 비활성화 상태
             speaker_node: None,    // 스피커 노드는 초기화되지 않음
+            
+            // 오디오 녹음 관련 필드
+            is_recording: false,                       // 녹음 중인지 여부
+            is_playing: false,                         // 재생 중인지 여부
+            recorder: None::<web_sys::MediaRecorder>,  // 미디어 레코더
+            recorded_chunks: Vec::new(),                // 녹음된 오디오 청크
+            recorded_audio_url: None,                   // 녹음된 오디오 URL
+            audio_element: None,                         // 오디오 재생 요소
+            playback_time: 0.0,                           // 재생 위치 (초)
+            last_recording_time: 0.0,                     // 마지막 녹음 위치 (초)
         }
     }
 
@@ -351,7 +404,66 @@ impl Component for PitchAnalyzer {
                                 .expect("Failed to connect audio source");
 
                             // 분석기, 스트림, 컨텍스트를 Msg에 담아 보냄
-                            link.send_message(Msg::AudioReady(audio_ctx, analyser, stream));
+                            link.send_message(Msg::AudioReady(audio_ctx, analyser, stream.clone()));
+                            
+                            // 마이크 활성화와 함께 녹음 시작
+                            link.send_message(Msg::StartRecording);
+                            
+                            // MediaRecorder 설정
+                            let recorder_options = web_sys::MediaRecorderOptions::new();
+                            if let Ok(recorder) = web_sys::MediaRecorder::new_with_media_stream_and_media_recorder_options(&stream, &recorder_options) {
+                                // 데이터 가용 이벤트 핸들러 설정
+                                let link_clone = link.clone();
+                                let ondataavailable = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                                    let blob_event = event.dyn_into::<web_sys::BlobEvent>().unwrap();
+                                    if let Some(blob) = blob_event.data() {
+                                        link_clone.send_message(Msg::RecordingDataAvailable(blob));
+                                    }
+                                }) as Box<dyn FnMut(web_sys::Event)>);
+                                
+                                // 녹음 완료 이벤트 핸들러 설정
+                                let link_clone = link.clone();
+                                let onstop = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                                    // 녹음된 모든 청크를 하나의 Blob으로 결합
+                                    let link_inner = link_clone.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        // 녹음 청크를 처리하는 메시지는 다른 곳에서 전송됨
+                                    });
+                                }) as Box<dyn FnMut(web_sys::Event)>);
+                                
+                                recorder.set_ondataavailable(Some(ondataavailable.as_ref().unchecked_ref()));
+                                recorder.set_onstop(Some(onstop.as_ref().unchecked_ref()));
+                                
+                                // 이벤트 핸들러 메모리 릭 방지를 위해 forget 호출
+                                ondataavailable.forget();
+                                onstop.forget();
+                                
+                                // 100ms 간격으로 데이터 수집하도록 설정
+                                if let Err(err) = recorder.start_with_time_slice(100) {
+                                    web_sys::console::error_1(&format!("Failed to start recorder: {:?}", err).into());
+                                }
+                                
+                                // 레코더 객체를 컴포넌트에 저장하기 위한 메시지 전송
+                                link.send_message(Msg::RecordingDataAvailable(web_sys::Blob::new().unwrap()));
+                                
+                                // 녹음 시간 제한 설정 (30초 후 자동 중지)
+                                let recorder_clone = recorder.clone();
+                                let link_clone = link.clone();
+                                let timeout_handle = gloo::timers::callback::Timeout::new(30_000, move || {
+                                    if recorder_clone.state() == web_sys::RecordingState::Recording {
+                                        if let Err(err) = recorder_clone.stop() {
+                                            web_sys::console::error_1(&format!("Failed to stop recorder after timeout: {:?}", err).into());
+                                        }
+                                        
+                                        // 녹음 완료 이벤트를 수동으로 발생시킴
+                                        link_clone.send_message(Msg::StopRecording);
+                                    }
+                                });
+                                // 타임아웃 핸들을 유지해야 함
+                                timeout_handle.forget();
+                            } else {
+                                web_sys::console::error_1(&"Failed to create MediaRecorder".into());
+                            }
                         }
                         Err(err) => {
                             web_sys::console::log_1(&format!("Media error: {:?}", err).into());
@@ -410,8 +522,16 @@ impl Component for PitchAnalyzer {
             Msg::AudioReady(audio_ctx, analyser, stream) => {
                 self.audio_ctx = Some(audio_ctx);
                 self.analyser = Some(analyser);
-                self._stream = Some(stream);
+                self._stream = Some(stream.clone());
                 self.mic_active = true;
+                self.is_recording = true;
+
+                // 녹음기 초기화
+                if let Ok(recorder) = web_sys::MediaRecorder::new_with_media_stream(&stream) {
+                    self.recorder = Some(recorder);
+                } else {
+                    web_sys::console::error_1(&"Failed to create MediaRecorder in AudioReady handler".into());
+                }
 
                 // 스트림 복제: 하나는 분석용, 하나는 모니터링용으로 분리
                 if let Some(ctx) = &self.audio_ctx {
@@ -427,8 +547,18 @@ impl Component for PitchAnalyzer {
                 }
 
                 let link = ctx.link().clone();
+                
+                // 이곳에서 is_recording 상태를 확인하고, 필요한 값만 클로저에 전달
+                let recording_active = self.is_recording;
+                let elapsed_time_clone = self.elapsed_time.clone();
+                
                 gloo::timers::callback::Interval::new(100, move || {
                     link.send_message(Msg::UpdatePitch);
+                    
+                    // 녹음 중인 경우 시간 업데이트
+                    if recording_active {
+                        link.send_message(Msg::UpdatePlaybackTime(elapsed_time_clone));
+                    }
                 })
                 .forget();
 
@@ -446,6 +576,53 @@ impl Component for PitchAnalyzer {
             }
 
             Msg::StopAudio => {
+                // 녹음 중지
+                if self.is_recording {
+                    if let Some(recorder) = &self.recorder {
+                        if recorder.state() == web_sys::RecordingState::Recording {
+                            recorder.stop().expect("Failed to stop recording");
+                        }
+                    }
+                    self.is_recording = false;
+                    self.last_recording_time = self.elapsed_time;
+                    
+                    // 녹음된 청크를 결합하여 URL 생성
+                    let blobs = js_sys::Array::new();
+                    for blob in &self.recorded_chunks {
+                        blobs.push(blob);
+                    }
+                    
+                    if !self.recorded_chunks.is_empty() {
+                        // Blob 배열을 하나의 Blob으로 합치기
+                        let mut blob_options = web_sys::BlobPropertyBag::new();
+                        blob_options.type_("audio/webm");
+                        
+                        if let Ok(combined_blob) = web_sys::Blob::new_with_blob_sequence_and_options(&blobs, &blob_options) {
+                            // Blob URL 생성
+                            let url = web_sys::Url::create_object_url_with_blob(&combined_blob)
+                                .expect("Failed to create object URL");
+                            
+                            self.recorded_audio_url = Some(url.clone());
+                            
+                            // 오디오 요소 생성
+                            if let Some(window) = web_sys::window() {
+                                if let Some(document) = window.document() {
+                                    if let Ok(element) = document.create_element("audio") {
+                                        let audio_element: web_sys::HtmlAudioElement = element
+                                            .dyn_into()
+                                            .expect("Failed to create audio element");
+                                        
+                                        audio_element.set_src(&url);
+                                        audio_element.set_controls(false);
+                                        
+                                        self.audio_element = Some(audio_element);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // 오디오 컨텍스트가 있으면 정지
                 if let Some(ctx) = &self.audio_ctx {
                     let _ = ctx.close();
@@ -613,6 +790,159 @@ impl Component for PitchAnalyzer {
                 }
                 true
             }
+
+            Msg::StartRecording => {
+                self.is_recording = true;
+                self.is_playing = false;
+                self.recorder = None;
+                self.recorded_chunks.clear();
+                self.recorded_audio_url = None;
+                self.audio_element = None;
+                self.playback_time = 0.0;
+                self.last_recording_time = 0.0;
+                true
+            }
+
+            Msg::StopRecording => {
+                self.is_recording = false;
+                self.is_playing = false;
+                self.recorder = None;
+                self.recorded_audio_url = None;
+                self.audio_element = None;
+                self.playback_time = 0.0;
+                self.last_recording_time = 0.0;
+                true
+            }
+
+            Msg::RecordingDataAvailable(blob) => {
+                // 녹음 데이터 추가
+                if blob.size() > 0.0 {
+                    self.recorded_chunks.push(blob);
+                }
+                // 추가 로직 없이 true만 반환
+                true
+            }
+
+            Msg::RecordingComplete(url) => {
+                // 녹음 완료
+                self.is_recording = false;
+                self.recorded_audio_url = Some(url.clone());
+                
+                // 오디오 요소 생성
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        if let Ok(element) = document.create_element("audio") {
+                            let audio_element: web_sys::HtmlAudioElement = element
+                                .dyn_into()
+                                .expect("Failed to create audio element");
+                            
+                            audio_element.set_src(&url);
+                            audio_element.set_controls(false);
+                            
+                            // 재생 종료 이벤트 리스너 추가
+                            let link = ctx.link().clone();
+                            let onended = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                                link.send_message(Msg::PlaybackEnded);
+                            }) as Box<dyn FnMut(web_sys::Event)>);
+                            
+                            audio_element.set_onended(Some(onended.as_ref().unchecked_ref()));
+                            onended.forget();
+                            
+                            self.audio_element = Some(audio_element);
+                        }
+                    }
+                }
+                
+                true
+            }
+
+            Msg::TogglePlayback => {
+                if self.is_playing {
+                    ctx.link().send_message(Msg::PausePlayback);
+                } else {
+                    ctx.link().send_message(Msg::StartPlayback);
+                }
+                false
+            }
+
+            Msg::StartPlayback => {
+                // 녹음 중이면 재생 불가
+                if self.is_recording {
+                    return false;
+                }
+                
+                if let Some(audio_element) = &self.audio_element {
+                    // 오디오 요소가 있으면 재생 시작
+                    if let Err(err) = audio_element.play() {
+                        web_sys::console::error_1(&format!("Failed to start playback: {:?}", err).into());
+                        return false;
+                    }
+                    
+                    // 재생 위치 초기화 및 플래그 설정
+                    self.is_playing = true;
+                    
+                    // 재생 상태 업데이트를 위한 인터벌 설정
+                    let link = ctx.link().clone();
+                    let audio_element_clone = audio_element.clone();
+                    
+                    // 100ms 간격으로 재생 시간 업데이트
+                    let interval_handle = gloo::timers::callback::Interval::new(100, move || {
+                        // 직접 current_time 값을 사용
+                        let current_time = audio_element_clone.current_time();
+                        link.send_message(Msg::UpdatePlaybackTime(current_time));
+                        
+                        // 재생이 끝났는지 확인
+                        if audio_element_clone.ended() {
+                            link.send_message(Msg::PlaybackEnded);
+                        }
+                    });
+                    
+                    // 인터벌 핸들 유지
+                    interval_handle.forget();
+                    
+                    true
+                } else {
+                    // 오디오 요소가 없으면 재생 불가
+                    web_sys::console::error_1(&"No audio element available for playback".into());
+                    false
+                }
+            }
+
+            Msg::PausePlayback => {
+                if let Some(audio_element) = &self.audio_element {
+                    // 오디오 요소가 있으면 일시정지
+                    if let Err(err) = audio_element.pause() {
+                        web_sys::console::error_1(&format!("Failed to pause playback: {:?}", err).into());
+                        return false;
+                    }
+                    
+                    self.is_playing = false;
+                    true
+                } else {
+                    // 오디오 요소가 없으면 일시정지 불가
+                    false
+                }
+            }
+
+            Msg::UpdatePlaybackTime(time) => {
+                // 재생 시간 업데이트
+                self.playback_time = time;
+                
+                // 재생 중인 경우 history에서 현재 시간에 해당하는 데이터를 찾아 표시
+                if self.is_playing {
+                    // 로그 메시지 출력
+                    web_sys::console::log_1(&format!("Playback time updated: {:.2}s", time).into());
+                }
+                
+                true
+            }
+
+            Msg::PlaybackEnded => {
+                // 재생 완료
+                self.is_playing = false;
+                self.playback_time = 0.0;
+                true
+            }
         }
     }
 
@@ -620,10 +950,17 @@ impl Component for PitchAnalyzer {
         let current_freq = self.current_freq;
         let history = VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>());
         let show_links = self.show_links;
+        let playback_time = if self.is_playing { Some(self.playback_time) } else { None };
+        let is_playing = self.is_playing;
 
         // 피치 플롯 컴포넌트
         let pitch_plot = html! {
-            <PitchPlot current_freq={current_freq} history={history} />
+            <PitchPlot 
+                current_freq={current_freq} 
+                history={history} 
+                playback_time={playback_time}
+                is_playing={is_playing}
+            />
         };
 
         // 대시보드 레이아웃 구성

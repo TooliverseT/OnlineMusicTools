@@ -107,6 +107,7 @@ pub fn pitch_controls() -> Html {
     let show_sensitivity = use_state(|| false);
     let mic_active = use_state(|| false);
     let monitor_active = use_state(|| false);
+    let is_playing = use_state(|| false);
 
     let on_sensitivity_change = {
         let sensitivity = sensitivity.clone();
@@ -196,7 +197,13 @@ pub fn pitch_controls() -> Html {
 
     let toggle_audio = {
         let mic_active = mic_active.clone();
+        let is_playing = is_playing.clone();
         Callback::from(move |_| {
+            // 재생 중이면 마이크 활성화 불가
+            if *is_playing {
+                return;
+            }
+            
             // 마이크 상태 토글
             let new_state = !*mic_active;
             mic_active.set(new_state);
@@ -247,6 +254,37 @@ pub fn pitch_controls() -> Html {
                 .unwrap();
         })
     };
+    
+    // 재생/일시정지 토글 콜백 추가
+    let toggle_playback = {
+        let is_playing = is_playing.clone();
+        let mic_active = mic_active.clone();
+        Callback::from(move |_| {
+            // 마이크 활성화 상태에서는 재생 불가
+            if *mic_active {
+                return;
+            }
+            
+            // 재생 상태 토글
+            let new_state = !*is_playing;
+            is_playing.set(new_state);
+            
+            // 재생 토글 이벤트 발생
+            let event = CustomEvent::new_with_event_init_dict(
+                "togglePlayback",
+                CustomEventInit::new()
+                    .bubbles(true)
+                    .detail(&JsValue::from_bool(new_state)),
+            )
+            .unwrap();
+            web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .dispatch_event(&event)
+                .unwrap();
+        })
+    };
 
     html! {
         <div class="pitch-controls navbar-item">
@@ -255,6 +293,7 @@ pub fn pitch_controls() -> Html {
                     class={classes!("icon-button", if *mic_active { "mic-active" } else { "" })}
                     onclick={toggle_audio}
                     title={if *mic_active { "마이크 비활성화" } else { "마이크 활성화" }}
+                    disabled={*is_playing}
                 >
                     { if *mic_active { "🔴" } else { "🎤" } }
                 </button>
@@ -266,6 +305,17 @@ pub fn pitch_controls() -> Html {
                 >
                     { if *monitor_active { "🔊" } else { "🔈" } }
                 </button>
+                
+                // 재생/일시정지 버튼 추가
+                <button
+                    class={classes!("icon-button", if *is_playing { "play-active" } else { "" })}
+                    onclick={toggle_playback}
+                    title={if *is_playing { "일시정지" } else { "재생" }}
+                    disabled={*mic_active}
+                >
+                    { if *is_playing { "⏸️" } else { "▶️" } }
+                </button>
+                
                 <button class="icon-button" onclick={toggle_links} title={if *show_links { "링크 숨기기" } else { "링크 표시하기" }}>
                     { if *show_links { "🔗" } else { "🔓" } }
                 </button>

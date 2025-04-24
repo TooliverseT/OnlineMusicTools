@@ -14,6 +14,8 @@ use yew::prelude::*;
 pub struct PitchPlotProps {
     pub current_freq: f64,
     pub history: VecDeque<(f64, Vec<(f64, f32)>)>, // (timestamp, [(frequency, amplitude)])
+    pub playback_time: Option<f64>, // 재생 시간 (재생 중일 때만 Some 값)
+    pub is_playing: bool, // 재생 중인지 여부
 }
 
 #[function_component(PitchPlot)]
@@ -192,6 +194,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let transition_start_time = transition_start_time.clone();
         let transition_duration = transition_duration.clone();
         let is_transitioning = is_transitioning.clone();
+        let playback_time = props.playback_time;
+        let is_playing = props.is_playing;
 
         use_effect_with(
             (
@@ -201,6 +205,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 *auto_follow,
                 fixed_time_range.clone(),
                 *is_transitioning,
+                playback_time,
+                is_playing,
             ),
             move |_| {
                 // 현재 시간 얻기 (초 단위)
@@ -270,8 +276,16 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     let window_duration = 30.0;
                     let history_duration = history.back().map(|(t, _)| *t).unwrap_or(0.0);
 
-                    // 고정 모드 또는 자동 모드에 따라 x축 범위 계산
-                    let (x_min, x_max) = if let Some((min, max)) = *fixed_time_range {
+                    // 고정 모드, 재생 모드, 또는 자동 모드에 따라 x축 범위 계산
+                    let (x_min, x_max) = if is_playing {
+                        // 재생 모드: 재생 시간 주변으로 표시
+                        let playback_t = playback_time.unwrap_or(0.0);
+                        if playback_t < window_duration / 2.0 {
+                            (0.0, window_duration)
+                        } else {
+                            (playback_t - window_duration / 2.0, playback_t + window_duration / 2.0)
+                        }
+                    } else if let Some((min, max)) = *fixed_time_range {
                         // 고정 모드: 사용자가 드래그한 범위 사용
                         (min, max)
                     } else if *auto_follow {
@@ -461,13 +475,24 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     }
 
                     // 현재 시간에 대한 세로선 그리기
-                    // 현재 시간 (history의 마지막 시간)
-                    let current_time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+                    // 현재 시간 (history의 마지막 시간 또는 재생 시간)
+                    let current_time = if is_playing {
+                        playback_time.unwrap_or_else(|| history.back().map(|(t, _)| *t).unwrap_or(0.0))
+                    } else {
+                        history.back().map(|(t, _)| *t).unwrap_or(0.0)
+                    };
 
                     // 현재 시간이 표시 범위 내에 있는 경우에만 세로선 표시
                     if current_time >= x_min && current_time <= x_max {
                         // 현재 시간 세로선 스타일 설정
-                        let line_color = RGBColor(158, 245, 207); // #9EF5CF
+                        let line_color = if is_playing {
+                            // 재생 중일 때는 주황색 라인
+                            RGBColor(255, 165, 0) // Orange
+                        } else {
+                            // 분석 중일 때는 민트색 라인
+                            RGBColor(158, 245, 207) // #9EF5CF
+                        };
+                        
                         let line_style = ShapeStyle::from(&line_color).stroke_width(2);
 
                         // 현재 시간 세로선 그리기
@@ -477,19 +502,6 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                                 line_style,
                             )))
                             .unwrap();
-
-                        // // 현재 시간 라벨 표시
-                        // let time_label = format!("{:.1}s", current_time);
-                        // let text_style = TextStyle::from(("Lexend", 14).into_font())
-                        //     .color(&RGBColor(50, 180, 50));
-
-                        // chart
-                        //     .draw_series(std::iter::once(Text::new(
-                        //         time_label,
-                        //         (current_time, max_log),
-                        //         &text_style,
-                        //     )))
-                        //     .unwrap();
                     }
 
                     // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
@@ -538,8 +550,18 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         }
                     }
 
-                    // 현재 모드 표시 (드래그 모드 또는 자동 모드)
-                    if !*auto_follow {
+                    // 현재 모드 표시 (드래그 모드 또는 자동 모드 또는 재생 모드)
+                    if is_playing {
+                        let style = TextStyle::from(("Lexend", 15).into_font())
+                            .color(&RGBColor(255, 165, 0)); // Orange
+                        chart
+                            .draw_series(std::iter::once(Text::new(
+                                "Playback Mode",
+                                (x_min + 0.5, max_log - 0.05),
+                                &style,
+                            )))
+                            .unwrap();
+                    } else if !*auto_follow {
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(158, 245, 207)); // #9EF5CF
                         chart
@@ -549,18 +571,6 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                                 &style,
                             )))
                             .unwrap();
-
-                        // 고정된 시간 범위 정보 표시
-                        // if let Some((min, max)) = *fixed_time_range {
-                        //     let time_info = format!("Time: {:.1}s - {:.1}s", min, max);
-                        //     chart
-                        //         .draw_series(std::iter::once(Text::new(
-                        //             time_info,
-                        //             (x_min + 0.5, max_log - 0.15),
-                        //             &style,
-                        //         )))
-                        //         .unwrap();
-                        // }
                     }
                 }
 
