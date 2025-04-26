@@ -232,8 +232,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             is_transitioning.set(true);
                         } else if !*is_transitioning {
                             // 작은 변화는 즉시 적용
-                            last_center_midi_handle.set(midi_from_freq(new_freq));
-                            last_center_freq_handle.set(new_freq);
+                            last_center_midi_handle.set(midi_from_freq(current_center));
+                            last_center_freq_handle.set(current_center);
                         }
                     }
 
@@ -346,10 +346,62 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     let mut y_labels: Vec<(f64, String, bool)> = Vec::new();
                     let mut grid_lines: Vec<f64> = Vec::new();
 
-                    // 현재 주파수에 가장 가까운 MIDI 노트 계산
-                    let closest_midi = midi_from_freq(current_freq);
+                    // 현재 주파수에 가장 가까운 MIDI 노트 계산 (재생 중일 때도 동작하도록)
+                    let current_freq_to_use = if current_freq > 0.0 {
+                        current_freq
+                    } else {
+                        440.0 // 기본값: A4
+                    };
+
+                    let closest_midi = midi_from_freq(current_freq_to_use);
                     let closest_freq = freq_from_midi(closest_midi);
                     let closest_log_freq = closest_freq.log10();
+
+                    // 현재 주파수 표시 (재생 모드에서도)
+                    let current_freq_log = if current_freq > 0.0 {
+                        current_freq.log10()
+                    } else {
+                        closest_log_freq // 주파수가 없으면 가장 가까운 노트 주파수 사용
+                    };
+
+                    // 현재 주파수가 유효하고 범위 내에 있으면 강조 표시
+                    if current_freq > 0.0 && current_freq_log >= min_log && current_freq_log <= max_log {
+                        // 현재 주파수를 강조하는 가로선
+                        chart
+                            .draw_series(std::iter::once(PathElement::new(
+                                vec![(x_min, current_freq_log), (x_max, current_freq_log)],
+                                ShapeStyle::from(&RGBColor(255, 165, 0)).stroke_width(2), // 주황색 라인
+                            )))
+                            .unwrap();
+                        
+                        // 현재 주파수와 음이름 표시
+                        let style = TextStyle::from(("Lexend", 16, "bold").into_font())
+                            .color(&RGBColor(255, 165, 0)); // 주황색 텍스트
+                        
+                        let note_name = note_name_from_midi(midi_from_freq(current_freq));
+                        let label_text = format!("{}", note_name);
+                        
+                        chart
+                            .draw_series(std::iter::once(Text::new(
+                                label_text,
+                                (x_max - 2.0, current_freq_log),
+                                &style,
+                            )))
+                            .unwrap();
+                        
+                        // 현재 시간 및 주파수 위치에 큰 원 표시 (재생 위치 강조)
+                        if let Some(playback_t) = playback_time {
+                            if playback_t >= x_min && playback_t <= x_max {
+                                chart
+                                    .draw_series(std::iter::once(Circle::new(
+                                        (playback_t, current_freq_log),
+                                        6,
+                                        RGBColor(255, 165, 0).filled(), // 주황색 원
+                                    )))
+                                    .unwrap();
+                            }
+                        }
+                    }
 
                     // MIDI 노트에 해당하는 주파수에만 라벨과 보조선 표시
                     for midi in min_midi..=max_midi {
@@ -558,13 +610,26 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     if is_playing {
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(255, 165, 0)); // Orange
+                        
+                        // 현재 재생 중인 주파수도 함께 표시
+                        let mode_text = if current_freq > 0.0 {
+                            let note_name = note_name_from_midi(midi_from_freq(current_freq));
+                            format!("Playback Mode - {} ({:.1} Hz)", note_name, current_freq)
+                        } else {
+                            "Playback Mode".to_string()
+                        };
+                        
                         chart
                             .draw_series(std::iter::once(Text::new(
-                                "Playback Mode",
+                                mode_text,
                                 (x_min + 0.5, max_log - 0.05),
                                 &style,
                             )))
                             .unwrap();
+                        
+                        // 로그 출력
+                        web_sys::console::log_1(&format!("차트 모드: 재생 - 시간: {:.2}s, 주파수: {:.2}Hz", 
+                            playback_time.unwrap_or(0.0), current_freq).into());
                     } else if !*auto_follow {
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(158, 245, 207)); // #9EF5CF

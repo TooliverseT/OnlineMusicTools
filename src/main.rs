@@ -1106,6 +1106,17 @@ impl Component for PitchAnalyzer {
                 // 재생 시간 업데이트
                 self.playback_time = time;
                 
+                // 현재 재생 시점의 주파수 찾기
+                if let Some((closest_t, freqs)) = self.history.iter()
+                    .filter(|(t, _)| (t - time).abs() < 0.2) // 시간 허용 오차 설정
+                    .min_by(|(t1, _), (t2, _)| (t1 - time).abs().partial_cmp(&(t2 - time).abs()).unwrap()) {
+                    
+                    if !freqs.is_empty() {
+                        let current_playback_freq = freqs[0].0;
+                        web_sys::console::log_1(&format!("🔊 재생 시간 {:.2}s의 주파수: {:.2}Hz", time, current_playback_freq).into());
+                    }
+                }
+                
                 // 재생 최대 시간 업데이트 (기록된 history의 마지막 시간값과 비교)
                 if let Some((last_time, _)) = self.history.back() {
                     if time > *last_time {
@@ -1149,7 +1160,30 @@ impl Component for PitchAnalyzer {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        let current_freq = self.current_freq;
+        let current_freq = if self.is_playing {
+            // 재생 중일 때, history에서 현재 playback_time에 가장 가까운 주파수 찾기
+            let playback_t = self.playback_time;
+            let closest_data = self.history.iter()
+                .min_by(|(t1, _), (t2, _)| {
+                    let diff1 = (t1 - playback_t).abs();
+                    let diff2 = (t2 - playback_t).abs();
+                    diff1.partial_cmp(&diff2).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            
+            if let Some((_, freqs)) = closest_data {
+                if !freqs.is_empty() {
+                    // 가장 강한 주파수(첫 번째 요소) 반환
+                    freqs[0].0
+                } else {
+                    self.current_freq
+                }
+            } else {
+                self.current_freq
+            }
+        } else {
+            self.current_freq
+        };
+
         let history = VecDeque::from(self.history.clone().into_iter().collect::<Vec<_>>());
         let show_links = self.show_links;
         let playback_time = if self.is_playing { Some(self.playback_time) } else { None };
