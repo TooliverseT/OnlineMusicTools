@@ -222,6 +222,9 @@ pub struct PitchAnalyzer {
     audio_element: Option<web_sys::HtmlAudioElement>, // 오디오 재생 요소
     playback_time: f64,                       // 재생 위치 (초)
     last_recording_time: f64,                 // 마지막 녹음 위치 (초)
+    
+    // 인터벌 타이머 핸들 추가
+    playback_interval: Option<gloo::timers::callback::Interval>,
 }
 
 pub enum Msg {
@@ -366,6 +369,9 @@ impl Component for PitchAnalyzer {
             audio_element: None,                         // 오디오 재생 요소
             playback_time: 0.0,                           // 재생 위치 (초)
             last_recording_time: 0.0,                     // 마지막 녹음 위치 (초)
+            
+            // 인터벌 타이머 핸들 추가
+            playback_interval: None,
         }
     }
 
@@ -590,13 +596,24 @@ impl Component for PitchAnalyzer {
                                             .dyn_into()
                                             .expect("Failed to create audio element");
                                         
+                                        // 기존 오디오 요소가 있으면 이벤트 리스너 제거 및 리소스 정리
+                                        if let Some(old_audio) = &self.audio_element {
+                                            old_audio.set_onloadeddata(None);
+                                            old_audio.set_onended(None);
+                                            
+                                            // URL 리소스 정리
+                                            if let Some(old_url) = &self.recorded_audio_url {
+                                                let _ = web_sys::Url::revoke_object_url(old_url);
+                                            }
+                                        }
+                                        
                                         audio_element.set_src(&url);
                                         audio_element.set_controls(false);
                                         
                                         // 로드 완료 이벤트 리스너 추가
                                         let link = ctx.link().clone();
                                         let onloadeddata = Closure::wrap(Box::new(move |_: web_sys::Event| {
-                                            web_sys::console::log_1(&"Audio data loaded successfully".into());
+                                            web_sys::console::log_1(&"새 오디오 데이터 로드 완료".into());
                                         }) as Box<dyn FnMut(web_sys::Event)>);
                                         audio_element.set_onloadeddata(Some(onloadeddata.as_ref().unchecked_ref()));
                                         onloadeddata.forget();
@@ -635,6 +652,9 @@ impl Component for PitchAnalyzer {
                 self.pitch = "🎤 음성 입력 대기...".to_string();
                 self.prev_freqs.clear();
                 self.current_freq = 0.0;
+
+                // 인터벌 정리
+                self.playback_interval = None;
 
                 true
             }
@@ -806,12 +826,12 @@ impl Component for PitchAnalyzer {
                 }
                 
                 self.is_recording = false;
-                self.is_playing = false;
                 
                 // MediaRecorder 정리
                 if let Some(recorder) = &self.recorder {
                     // 데이터 이벤트 핸들러 제거
                     recorder.set_ondataavailable(None);
+                    recorder.set_onstop(None);
                     
                     // 레코더가 아직 녹음 중이면 중지
                     if recorder.state() == web_sys::RecordingState::Recording {
@@ -821,16 +841,8 @@ impl Component for PitchAnalyzer {
                     web_sys::console::log_1(&"Recording stopped and recorder event listeners removed".into());
                 }
                 
-                // 기존 오디오 요소가 있다면 이벤트 리스너 제거
-                if let Some(audio_elem) = &self.audio_element {
-                    audio_elem.set_onloadeddata(None);
-                    audio_elem.set_onended(None);
-                }
-                
                 // 모든 관련 상태 초기화
                 self.recorder = None;
-                self.playback_time = 0.0;
-                self.last_recording_time = 0.0;
                 
                 true
             }
@@ -900,86 +912,134 @@ impl Component for PitchAnalyzer {
             Msg::StartPlayback => {
                 // 녹음 중이면 재생 불가
                 if self.is_recording {
+                    web_sys::console::log_1(&"녹음 중에는 재생할 수 없습니다".into());
+                    return false;
+                }
+                
+                // 이미 재생 중인 경우 중복 호출 방지
+                if self.is_playing {
+                    web_sys::console::log_1(&"이미 재생 중입니다".into());
                     return false;
                 }
                 
                 if let Some(audio_element) = &self.audio_element {
-                    info!("audio_element {:?}", audio_element);
+                    web_sys::console::log_1(&format!("StartPlayback: 오디오 요소={:?}, ready_state={}", 
+                        audio_element, audio_element.ready_state()).into());
+                    
+                    // 기존 인터벌이 있으면 제거
+                    self.playback_interval = None;
                     
                     // 오디오 데이터가 로드되었는지 확인
                     if audio_element.ready_state() < 2 { // HAVE_CURRENT_DATA = 2
+                        web_sys::console::log_1(&"오디오 데이터가 아직 로드되지 않음. loadeddata 리스너 설정".into());
+                        
                         // 아직 로드 중이면 로드 완료 후 재생을 시도하도록 이벤트 리스너 추가
                         let link = ctx.link().clone();
                         let audio_element_clone = audio_element.clone();
                         let onloadeddata = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                            web_sys::console::log_1(&"오디오 데이터 로드 완료 콜백 실행".into());
                             // 로드 완료 후 재생 시도
                             if let Err(err) = audio_element_clone.play() {
-                                web_sys::console::error_1(&format!("Failed to start playback after load: {:?}", err).into());
+                                web_sys::console::error_1(&format!("로드 후 재생 시작 실패: {:?}", err).into());
                             } else {
-                                // 재생 성공 시 플래그 설정을 위한 메시지 전송
+                                web_sys::console::log_1(&"로드 후 재생 시작됨".into());
+                                // 재생 성공 시 플래그 설정
                                 link.send_message(Msg::StartPlayback);
                             }
                         }) as Box<dyn FnMut(web_sys::Event)>);
                         
+                        // 기존 리스너 제거 후 새 리스너 설정
+                        audio_element.set_onloadeddata(None);
                         audio_element.set_onloadeddata(Some(onloadeddata.as_ref().unchecked_ref()));
                         onloadeddata.forget();
                         
                         // 로딩 중임을 알림
-                        web_sys::console::log_1(&"Audio data is still loading, waiting...".into());
+                        web_sys::console::log_1(&"오디오 데이터 로드 대기 중...".into());
                         return true;
                     }
                     
                     // 오디오 요소가 있고 데이터가 로드되었으면 재생 시작
+                    web_sys::console::log_1(&"오디오 데이터 로드됨, 재생 시작".into());
+                    
+                    // 재생 전에 명시적으로 currentTime을 0으로 리셋
+                    audio_element.set_current_time(0.0);
+                    self.playback_time = 0.0;
+                    
+                    // 기존 이벤트 리스너들 명시적으로 제거
+                    audio_element.set_onended(None);
+                    
+                    // 종료 이벤트 새로 설정
+                    let link = ctx.link().clone();
+                    let onended = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                        web_sys::console::log_1(&"재생 종료 이벤트 발생".into());
+                        link.send_message(Msg::PlaybackEnded);
+                    }) as Box<dyn FnMut(web_sys::Event)>);
+                    audio_element.set_onended(Some(onended.as_ref().unchecked_ref()));
+                    onended.forget();
+                    
+                    // 재생 상태 설정 (재생 시작 전에 설정)
+                    self.is_playing = true;
+                    
+                    // 재생 시작
                     if let Err(err) = audio_element.play() {
-                        web_sys::console::error_1(&format!("Failed to start playback: {:?}", err).into());
+                        web_sys::console::error_1(&format!("재생 시작 실패: {:?}", err).into());
+                        self.is_playing = false;
                         return false;
                     }
-                    // 재생 위치 초기화 및 플래그 설정
-                    self.is_playing = true;
+                    
+                    web_sys::console::log_1(&format!("재생 시작됨, is_playing={}", self.is_playing).into());
                     
                     // 재생 상태 업데이트를 위한 인터벌 설정
                     let link = ctx.link().clone();
                     let audio_element_clone = audio_element.clone();
                     
-                    // 100ms 간격으로 재생 시간 업데이트 - 여기서만 UpdatePlaybackTime 호출
-                    let mut last_time = -1.0; // 마지막으로 업데이트한 시간 (초기값은 유효하지 않은 값)
-                    
-                    let interval_handle = gloo::timers::callback::Interval::new(100, move || {
+                    // 새 인터벌 생성
+                    let interval = gloo::timers::callback::Interval::new(100, move || {
+                        // 오디오 요소가 아직 유효한지 확인
+                        if audio_element_clone.ended() {
+                            web_sys::console::log_1(&"재생 종료 감지됨 (인터벌)".into());
+                            link.send_message(Msg::PlaybackEnded);
+                            return;
+                        }
+                        
                         // 현재 재생 시간 가져오기
                         let current_time = audio_element_clone.current_time();
                         
-                        // 플레이백 시간이 변경되었고 0으로 돌아가지 않은 경우에만 업데이트 메시지 전송
-                        if current_time != last_time && (last_time == -1.0 || current_time > 0.0) {
-                            link.send_message(Msg::UpdatePlaybackTime(current_time));
-                            last_time = current_time;
-                        }
-                        
-                        // 재생이 끝났는지 확인
-                        if audio_element_clone.ended() {
-                            link.send_message(Msg::PlaybackEnded);
-                        }
+                        // 시간 업데이트 메시지 전송
+                        link.send_message(Msg::UpdatePlaybackTime(current_time));
                     });
                     
-                    // 인터벌 핸들 유지
-                    interval_handle.forget();
+                    // 인터벌 핸들 저장
+                    self.playback_interval = Some(interval);
                     
                     true
                 } else {
                     // 오디오 요소가 없으면 재생 불가
-                    web_sys::console::error_1(&"No audio element available for playback".into());
+                    web_sys::console::error_1(&"재생할 오디오 요소가 없음".into());
                     false
                 }
             }
 
             Msg::PausePlayback => {
+                // 이미 정지 상태면 중복 호출 무시
+                if !self.is_playing {
+                    return false;
+                }
+                
                 if let Some(audio_element) = &self.audio_element {
                     // 오디오 요소가 있으면 일시정지
                     if let Err(err) = audio_element.pause() {
-                        web_sys::console::error_1(&format!("Failed to pause playback: {:?}", err).into());
+                        web_sys::console::error_1(&format!("재생 일시정지 실패: {:?}", err).into());
                         return false;
                     }
                     
+                    // 인터벌 타이머 제거
+                    self.playback_interval = None;
+                    
+                    // 상태 업데이트
                     self.is_playing = false;
+                    web_sys::console::log_1(&"재생 일시정지됨".into());
+                    
                     true
                 } else {
                     // 오디오 요소가 없으면 일시정지 불가
@@ -988,22 +1048,49 @@ impl Component for PitchAnalyzer {
             }
 
             Msg::UpdatePlaybackTime(time) => {
+                if !self.is_playing {
+                    // 재생 중이 아닌데 호출되면, 이는 잘못된 상태임을 기록하고 무시
+                    web_sys::console::log_1(&format!("⚠️ 재생 중이 아닌데 UpdatePlaybackTime 호출됨: {:.2}s", time).into());
+                    return false;
+                }
+                
+                // 시간이 너무 작으면 무시 (seek 동작으로 인한 오류 방지)
+                if time < 0.001 {
+                    web_sys::console::log_1(&"시간이 너무 작아서 무시 (0에 가까움)".into());
+                    return false;
+                }
+                
+                // 작은 변화는 무시 (성능 향상)
+                if (time - self.playback_time).abs() < 0.05 {
+                    return false;
+                }
+                
                 // 재생 시간 업데이트
                 self.playback_time = time;
                 
-                // 재생 중인 경우 history에서 현재 시간에 해당하는 데이터를 찾아 표시
-                if self.is_playing {
-                    // 로그 메시지 출력
-                    web_sys::console::log_1(&format!("Playback time updated: {:.2}s", time).into());
-                }
+                // 재생 중 로그 출력
+                web_sys::console::log_1(&format!("⏱️ 재생 시간 업데이트: {:.2}s, is_playing: {}", time, self.is_playing).into());
                 
                 true
             }
 
             Msg::PlaybackEnded => {
-                // 재생 완료
+                // 이미 재생 중이 아니면 중복 호출 무시
+                if !self.is_playing {
+                    web_sys::console::log_1(&"이미 재생이 종료되었습니다".into());
+                    return false;
+                }
+                
+                // 재생 완료 로그
+                web_sys::console::log_1(&"⏹️ 재생 종료, 재생 상태 초기화".into());
+                
+                // 인터벌 타이머 제거
+                self.playback_interval = None;
+                
+                // 상태 초기화
                 self.is_playing = false;
                 self.playback_time = 0.0;
+                
                 true
             }
 

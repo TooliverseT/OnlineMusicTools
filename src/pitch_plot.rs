@@ -477,9 +477,13 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     // 현재 시간에 대한 세로선 그리기
                     // 현재 시간 (history의 마지막 시간 또는 재생 시간)
                     let current_time = if is_playing {
-                        playback_time.unwrap_or_else(|| history.back().map(|(t, _)| *t).unwrap_or(0.0))
+                        let time = playback_time.unwrap_or_else(|| history.back().map(|(t, _)| *t).unwrap_or(0.0));
+                        web_sys::console::log_1(&format!("[PitchPlot] Playback time: {:.2}s, is_playing: {}", time, is_playing).into());
+                        time
                     } else {
-                        history.back().map(|(t, _)| *t).unwrap_or(0.0)
+                        let time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+                        web_sys::console::log_1(&format!("[PitchPlot] History time: {:.2}s, is_playing: {}", time, is_playing).into());
+                        time
                     };
 
                     // 현재 시간이 표시 범위 내에 있는 경우에만 세로선 표시
