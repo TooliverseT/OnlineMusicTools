@@ -225,6 +225,7 @@ pub struct PitchAnalyzer {
     
     // 인터벌 타이머 핸들 추가
     playback_interval: Option<gloo::timers::callback::Interval>,
+    recording_start_time: f64,   // 녹음 시작 시간 (audio_ctx 기준)
 }
 
 pub enum Msg {
@@ -372,6 +373,7 @@ impl Component for PitchAnalyzer {
             
             // 인터벌 타이머 핸들 추가
             playback_interval: None,
+            recording_start_time: 0.0,   // 녹음 시작 시간 (audio_ctx 기준)
         }
     }
 
@@ -470,12 +472,27 @@ impl Component for PitchAnalyzer {
                     let mut buffer = vec![0.0f32; analyser.fft_size() as usize];
                     analyser.get_float_time_domain_data(&mut buffer[..]);
                     let sample_rate = 44100.0;
-
-                    self.elapsed_time += 0.1;
-
+                    
+                    // 녹음 시작부터 경과된 시간을 계산 (더 안정적인 방식)
+                    let current_time = if let Some(audio_ctx) = &self.audio_ctx {
+                        // 녹음 시작 시간 기준으로 경과 시간 계산
+                        let ctx_current_time = audio_ctx.current_time();
+                        let elapsed = ctx_current_time - self.recording_start_time;
+                        
+                        // 음수나 너무 큰 값이 나오지 않도록 방어
+                        if elapsed >= 0.0 && elapsed < 3600.0 {
+                            elapsed
+                        } else {
+                            // 오류 상황: 기존 시간 + 일정 증분 사용
+                            self.elapsed_time + 0.1
+                        }
+                    } else {
+                        // 오디오 컨텍스트가 없으면 기본값 0.1씩 증가
+                        self.elapsed_time + 0.1
+                    };
+                    
                     // 여러 주파수 분석
-                    let freqs =
-                        analyze_multiple_frequencies(&buffer, sample_rate, self.sensitivity);
+                    let freqs = analyze_multiple_frequencies(&buffer, sample_rate, self.sensitivity);
 
                     if !freqs.is_empty() {
                         // 가장 강한 주파수 (첫 번째 요소)
@@ -486,23 +503,28 @@ impl Component for PitchAnalyzer {
                             self.prev_freqs.pop_front();
                         }
                         self.prev_freqs.push_back(strongest_freq);
-                        let average_freq =
-                            self.prev_freqs.iter().sum::<f64>() / self.prev_freqs.len() as f64;
+                        let average_freq = self.prev_freqs.iter().sum::<f64>() / self.prev_freqs.len() as f64;
                         self.current_freq = average_freq;
 
                         let note = frequency_to_note_octave(average_freq);
                         self.pitch = format!("🎶 현재 음: {} ({:.2} Hz)", note, average_freq);
 
-                        // 전체 주파수 목록 기록
-                        self.history.push_back((self.elapsed_time, freqs));
+                        // 현재 상대 시간과 함께 주파수 목록 기록
+                        self.history.push_back((current_time, freqs));
+                        
+                        // 로그 출력 (디버깅용)
+                        web_sys::console::log_1(&format!("🕒 녹음 경과 시간: {:.2}s, 주파수: {:.2}Hz", current_time, average_freq).into());
                     } else {
                         self.pitch = "🔇 너무 작은 소리 (무시됨)".to_string();
                         self.prev_freqs.clear();
                         self.current_freq = 0.0;
 
-                        // 빈 주파수 목록 기록
-                        self.history.push_back((self.elapsed_time, Vec::new()));
+                        // 빈 주파수 목록 기록 (시간은 계속 유지)
+                        self.history.push_back((current_time, Vec::new()));
                     }
+                    
+                    // 외부 참조용 시간 업데이트
+                    self.elapsed_time = current_time;
 
                     true
                 } else {
@@ -810,11 +832,23 @@ impl Component for PitchAnalyzer {
                 self.playback_time = 0.0;
                 self.last_recording_time = 0.0;
 
-                // === 차트 및 시간 관련 상태도 초기화 ===
-                self.history.clear();
+                // 녹음 시작 시간 저장
+                if let Some(audio_ctx) = &self.audio_ctx {
+                    self.recording_start_time = audio_ctx.current_time();
+                    web_sys::console::log_1(&format!("녹음 시작 절대 시간: {:.2}초", self.recording_start_time).into());
+                } else {
+                    self.recording_start_time = 0.0;
+                }
+                
+                // 시간 초기화
                 self.elapsed_time = 0.0;
+                
+                // === 차트 관련 상태 초기화 ===
+                self.history.clear();
                 self.prev_freqs.clear();
                 self.current_freq = 0.0;
+                
+                web_sys::console::log_1(&"녹음 시작: 시간 초기화됨".into());
 
                 true
             }
@@ -843,6 +877,10 @@ impl Component for PitchAnalyzer {
                 
                 // 모든 관련 상태 초기화
                 self.recorder = None;
+                
+                // 마지막 녹음 시간 저장
+                self.last_recording_time = self.elapsed_time;
+                web_sys::console::log_1(&format!("녹음 종료: 총 녹음 시간 = {:.2}초", self.last_recording_time).into());
                 
                 true
             }
@@ -1005,7 +1043,7 @@ impl Component for PitchAnalyzer {
                         // 현재 재생 시간 가져오기
                         let current_time = audio_element_clone.current_time();
                         
-                        // 시간 업데이트 메시지 전송
+                        // 시간 업데이트 메시지 전송 - 모든 시간값 전송
                         link.send_message(Msg::UpdatePlaybackTime(current_time));
                     });
                     
@@ -1067,6 +1105,14 @@ impl Component for PitchAnalyzer {
                 
                 // 재생 시간 업데이트
                 self.playback_time = time;
+                
+                // 재생 최대 시간 업데이트 (기록된 history의 마지막 시간값과 비교)
+                if let Some((last_time, _)) = self.history.back() {
+                    if time > *last_time {
+                        // 현재 재생 시간이 기록된 마지막 시간보다 크면 이상 - 로그 출력
+                        web_sys::console::log_1(&format!("⚠️ 재생 시간이 기록 범위를 벗어남: {:.2}s > {:.2}s", time, last_time).into());
+                    }
+                }
                 
                 // 재생 중 로그 출력
                 web_sys::console::log_1(&format!("⏱️ 재생 시간 업데이트: {:.2}s, is_playing: {}", time, self.is_playing).into());
