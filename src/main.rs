@@ -595,6 +595,7 @@ impl Component for PitchAnalyzer {
                                 .expect("Failed to create object URL");
                             
                             self.recorded_audio_url = Some(url.clone());
+                            info!("url: {:?}", self.recorded_audio_url);
                             
                             // 오디오 요소 생성
                             if let Some(window) = web_sys::window() {
@@ -792,6 +793,13 @@ impl Component for PitchAnalyzer {
                 self.audio_element = None;
                 self.playback_time = 0.0;
                 self.last_recording_time = 0.0;
+
+                // === 차트 및 시간 관련 상태도 초기화 ===
+                self.history.clear();
+                self.elapsed_time = 0.0;
+                self.prev_freqs.clear();
+                self.current_freq = 0.0;
+
                 true
             }
 
@@ -864,12 +872,12 @@ impl Component for PitchAnalyzer {
                 }
                 
                 if let Some(audio_element) = &self.audio_element {
+                    info!("audio_element {:?}", audio_element);
                     // 오디오 요소가 있으면 재생 시작
                     if let Err(err) = audio_element.play() {
                         web_sys::console::error_1(&format!("Failed to start playback: {:?}", err).into());
                         return false;
                     }
-                    
                     // 재생 위치 초기화 및 플래그 설정
                     self.is_playing = true;
                     
