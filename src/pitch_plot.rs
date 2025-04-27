@@ -497,6 +497,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                     // 모든 시간대에 대해 점 그리기 및 각 시간대의 최대 진폭 찾기
                     let mut time_grouped_points: BTreeMap<i64, Vec<(f64, f32)>> = BTreeMap::new();
+                    
+                    // 진폭 기준 정렬된 원본 데이터 저장 (전체 주파수 범위)
+                    let mut time_grouped_sorted: BTreeMap<i64, Vec<(f64, f32)>> = BTreeMap::new();
 
                     // 시간별로 데이터 그룹화
                     for (t, freqs) in history.iter() {
@@ -505,24 +508,38 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             continue;
                         }
 
-                        let mut valid_freqs = Vec::new();
+                        // 주파수 0 제외한 모든 주파수 저장
+                        let mut all_freqs = Vec::new();
                         for (freq, amplitude) in freqs {
                             if *freq == 0.0 {
                                 continue;
                             }
-
-                            let log_freq = freq.log10();
-                            // 범위 내 주파수만 저장
-                            if log_freq >= min_log && log_freq <= max_log {
-                                valid_freqs.push((*freq, *amplitude));
-                            }
+                            all_freqs.push((*freq, *amplitude));
                         }
 
+                        // 진폭 기준 내림차순 정렬
+                        all_freqs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                        
                         // 유효한 주파수가 있으면 저장
-                        if !valid_freqs.is_empty() {
+                        if !all_freqs.is_empty() {
                             // 시간 값을 정수로 변환 (밀리초 단위)
                             let time_key = (*t * 1000.0) as i64;
-                            time_grouped_points.insert(time_key, valid_freqs);
+                            
+                            // 정렬된 전체 주파수 저장
+                            time_grouped_sorted.insert(time_key, all_freqs.clone());
+                            
+                            // Y축 범위 내 주파수만 필터링하여 저장
+                            let valid_freqs: Vec<(f64, f32)> = all_freqs.iter()
+                                .filter(|(freq, _)| {
+                                    let log_freq = freq.log10();
+                                    log_freq >= min_log && log_freq <= max_log
+                                })
+                                .cloned()
+                                .collect();
+                            
+                            if !valid_freqs.is_empty() {
+                                time_grouped_points.insert(time_key, valid_freqs);
+                            }
                         }
                     }
 
@@ -559,39 +576,46 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             )))
                             .unwrap();
                     }
-
-                    // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
+                    
+                    // 전체 히스토리에서 마지막 시간대의 시간 키를 찾는다 (화면에 보이는 영역이 아닌 전체 데이터 기준)
+                    let absolute_latest_time = history.back().map(|(t, _)| (*t * 1000.0) as i64);
+                    
+                    // 가장 최근의 가장 강한 주파수만 크기 5로, 나머지는 2로 설정
                     let latest_time_key = time_grouped_points.keys().max().cloned();
 
                     // 각 시간대별로 처리
                     for (time_key, freqs) in time_grouped_points.iter() {
-                        // 진폭 기준 내림차순 정렬
-                        let mut sorted_freqs = freqs.clone();
-                        sorted_freqs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
                         // 원래 시간 값으로 변환
                         let t = *time_key as f64 / 1000.0;
-
+                        
+                        // 이 시간대의 전체 주파수 중 가장 강한 주파수 (원본 데이터 기준)
+                        let strongest_freq_opt = time_grouped_sorted.get(time_key)
+                            .and_then(|sorted_freqs| sorted_freqs.first())
+                            .filter(|(_, amplitude)| *amplitude >= 0.7);
+                        
                         // 각 주파수에 대해 점 그리기
-                        for (i, (freq, amplitude)) in sorted_freqs.iter().enumerate() {
+                        for (freq, amplitude) in freqs.iter() {
                             let log_freq = freq.log10();
+                            
+                            // 이 주파수가 이 시간대의 가장 강한 주파수인지 확인
+                            let is_strongest = if let Some((strongest_freq, _)) = strongest_freq_opt {
+                                (freq - strongest_freq).abs() < 0.1 // 거의 같은 주파수인지 확인 (오차 허용)
+                            } else {
+                                false
+                            };
 
-                            // 첫 번째(가장 강한 주파수)라도 진폭이 0.7 이상인 경우에만 강조
-                            let color = if i == 0 && *amplitude >= 0.7 {
+                            // 가장 강한 주파수만 민트색으로 표시
+                            let color = if is_strongest {
                                 // 가장 강한 주파수는 민트색
                                 RGBColor(158, 245, 207) // #9EF5CF
                             } else {
                                 // 나머지는 진한 회색계열
-                                let alpha = (amplitude * 100.0) as u8 + 40; // 40~140 범위로 더 옅게 조정
                                 RGBColor(120, 120, 120)
                             };
 
-                            // 가장 최근의 가장 강한 주파수만 크기 3으로, 나머지는 2로 설정
-                            let point_size = if i == 0
-                                && Some(*time_key) == latest_time_key
-                                && *amplitude >= 0.7
-                            {
-                                5 // 가장 최근의 가장 강한 주파수는 크게
+                            // 전체 기록의 마지막 시간대의 가장 강한 주파수만 크기 5로, 나머지는 2로 설정
+                            let point_size = if is_strongest && absolute_latest_time == Some(*time_key) {
+                                5 // 실제 마지막 시간대의 가장 강한 주파수만 크게
                             } else {
                                 2 // 나머지는 작게
                             };
