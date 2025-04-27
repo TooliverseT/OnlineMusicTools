@@ -108,6 +108,7 @@ pub fn pitch_controls() -> Html {
     let mic_active = use_state(|| false);
     let monitor_active = use_state(|| false);
     let is_playing = use_state(|| false);
+    let speaker_gain = use_state(|| 0.02f32); // 스피커 게인 (기본값 0.02)
 
     let on_sensitivity_change = {
         let sensitivity = sensitivity.clone();
@@ -286,6 +287,25 @@ pub fn pitch_controls() -> Html {
         })
     };
 
+    // 스피커 게인 슬라이더
+    let on_speaker_gain_change = {
+        let speaker_gain = speaker_gain.clone();
+        Callback::from(move |e: web_sys::Event| {
+            let input = e.target().unwrap().dyn_into::<web_sys::HtmlInputElement>().unwrap();
+            let value = input.value().parse::<f32>().unwrap_or(0.02);
+            speaker_gain.set(value);
+
+            // 스피커 게인 변경 이벤트 발생
+            let event = CustomEvent::new_with_event_init_dict(
+                "updateSpeakerVolume",
+                CustomEventInit::new()
+                    .bubbles(true)
+                    .detail(&JsValue::from_f64(value as f64)),
+            ).unwrap();
+            web_sys::window().unwrap().document().unwrap().dispatch_event(&event).unwrap();
+        })
+    };
+
     html! {
         <div class="pitch-controls navbar-item">
             <div class="navbar-controls-buttons">
@@ -328,6 +348,20 @@ pub fn pitch_controls() -> Html {
                             html! {
                                 <div class="sensitivity-dropdown-content">
                                     <div class="sensitivity-slider">
+                                        <label for="speaker-gain">{"스피커 게인"}</label>
+                                        <input
+                                            type="range"
+                                            id="speaker-gain"
+                                            min="0.0"
+                                            max="1.0"
+                                            step="0.01"
+                                            value={(*speaker_gain).to_string()}
+                                            onchange={on_speaker_gain_change.clone()}
+                                        />
+                                        <span>{ format!("{:.2}", *speaker_gain) }</span>
+                                    </div>
+                                    <div class="sensitivity-slider">
+                                        <label for="sensitivity">{"감도"}</label>
                                         <input
                                             type="range"
                                             id="sensitivity"
