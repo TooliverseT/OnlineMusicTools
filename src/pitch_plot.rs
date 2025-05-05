@@ -23,6 +23,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
     let canvas_ref = use_node_ref();
     let last_center_midi = use_state(|| 69); // MIDI 69 (A4)를 기본값으로 설정
     let last_center_freq = use_state(|| 440.0); // A4 주파수를 기본값으로 설정
+    
+    // 마지막 재생 시간을 저장하는 상태 추가
+    let last_playback_time = use_state(|| None::<f64>);
 
     // 애니메이션을 위한 상태 추가
     let target_center_freq = use_state(|| 440.0); // 목표 중심 주파수
@@ -196,6 +199,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let is_transitioning = is_transitioning.clone();
         let playback_time = props.playback_time;
         let is_playing = props.is_playing;
+        let last_playback_time = last_playback_time.clone();
 
         use_effect_with(
             (
@@ -211,6 +215,15 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
             move |_| {
                 // 현재 시간 얻기 (초 단위)
                 let current_time = Date::now() / 1000.0;
+
+                // 재생 시간 업데이트 - 재생 중이면 현재 시간으로, 일시 정지 상태면 마지막 재생 시간 유지
+                if let Some(time) = playback_time {
+                    last_playback_time.set(Some(time));
+                } else if is_playing {
+                    // 재생 중인데 시간이 없는 경우는 0으로 초기화 (예외 처리)
+                    last_playback_time.set(Some(0.0));
+                }
+                // 일시 정지 시에는 last_playback_time을 초기화하지 않음 (이전 값 유지)
 
                 if let Some(canvas) = canvas_ref.cast::<web_sys::HtmlCanvasElement>() {
                     // 주파수가 변경되었고, 자동 따라가기 모드일 때 처리
@@ -277,13 +290,13 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     let history_duration = history.back().map(|(t, _)| *t).unwrap_or(0.0);
 
                     // 고정 모드, 재생 모드, 또는 자동 모드에 따라 x축 범위 계산
-                    let (x_min, x_max) = if is_playing {
-                        // 재생 모드: 재생 시간 주변으로 표시
-                        let playback_t = playback_time.unwrap_or(0.0);
-                        if playback_t < window_duration / 2.0 {
+                    let (x_min, x_max) = if is_playing || last_playback_time.is_some() {
+                        // 재생 모드 또는 일시 정지 상태: 재생 시간 주변으로 표시
+                        let display_time = playback_time.or_else(|| *last_playback_time).unwrap_or(0.0);
+                        if display_time < window_duration / 2.0 {
                             (0.0, window_duration)
                         } else {
-                            (playback_t - window_duration / 2.0, playback_t + window_duration / 2.0)
+                            (display_time - window_duration / 2.0, display_time + window_duration / 2.0)
                         }
                     } else if let Some((min, max)) = *fixed_time_range {
                         // 고정 모드: 사용자가 드래그한 범위 사용
@@ -544,14 +557,20 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     }
 
                     // 현재 시간에 대한 세로선 그리기
-                    // 현재 시간 (history의 마지막 시간 또는 재생 시간)
+                    // 현재 시간 (일시 정지 상태면 마지막 재생 시간, 재생 중이면 현재 재생 시간, 그 외에는 히스토리의 마지막 시간)
                     let current_time = if is_playing {
+                        // 재생 중이면 현재 playback_time 사용
                         let time = playback_time.unwrap_or_else(|| history.back().map(|(t, _)| *t).unwrap_or(0.0));
                         web_sys::console::log_1(&format!("[PitchPlot] Playback time: {:.2}s, is_playing: {}", time, is_playing).into());
                         time
+                    } else if let Some(time) = *last_playback_time {
+                        // 일시 정지 상태면 마지막 재생 시간 사용
+                        web_sys::console::log_1(&format!("[PitchPlot] Paused at time: {:.2}s", time).into());
+                        time
                     } else {
+                        // 그 외에는 히스토리의 마지막 시간 사용
                         let time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
-                        web_sys::console::log_1(&format!("[PitchPlot] History time: {:.2}s, is_playing: {}", time, is_playing).into());
+                        web_sys::console::log_1(&format!("[PitchPlot] History time: {:.2}s", time).into());
                         time
                     };
 
@@ -561,6 +580,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         let line_color = if is_playing {
                             // 재생 중일 때는 주황색 라인
                             RGBColor(255, 165, 0) // Orange
+                        } else if last_playback_time.is_some() {
+                            // 일시 정지 상태일 때는 빨간색 라인
+                            RGBColor(255, 100, 100) // Red
                         } else {
                             // 분석 중일 때는 민트색 라인
                             RGBColor(158, 245, 207) // #9EF5CF
@@ -630,7 +652,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         }
                     }
 
-                    // 현재 모드 표시 (드래그 모드 또는 자동 모드 또는 재생 모드)
+                    // 현재 모드 표시 (드래그 모드 또는 자동 모드 또는 재생/일시정지 모드)
                     if is_playing {
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(255, 165, 0)); // Orange
@@ -654,6 +676,21 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         // 로그 출력
                         web_sys::console::log_1(&format!("차트 모드: 재생 - 시간: {:.2}s, 주파수: {:.2}Hz", 
                             playback_time.unwrap_or(0.0), current_freq).into());
+                    } else if last_playback_time.is_some() {
+                        // 일시 정지 모드 텍스트 표시
+                        let style = TextStyle::from(("Lexend", 15).into_font())
+                            .color(&RGBColor(255, 100, 100)); // Red
+                        
+                        let paused_time = last_playback_time.unwrap_or(0.0);
+                        let mode_text = format!("Paused at {:.1}s", paused_time);
+                        
+                        chart
+                            .draw_series(std::iter::once(Text::new(
+                                mode_text,
+                                (x_min + 0.5, max_log - 0.05),
+                                &style,
+                            )))
+                            .unwrap();
                     } else if !*auto_follow {
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(158, 245, 207)); // #9EF5CF

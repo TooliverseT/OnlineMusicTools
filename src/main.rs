@@ -999,9 +999,15 @@ impl Component for PitchAnalyzer {
                     // 오디오 요소가 있고 데이터가 로드되었으면 재생 시작
                     web_sys::console::log_1(&"오디오 데이터 로드됨, 재생 시작".into());
                     
-                    // 재생 전에 명시적으로 currentTime을 0으로 리셋
-                    audio_element.set_current_time(0.0);
-                    self.playback_time = 0.0;
+                    // 재생이 끝나서 다시 시작하는 경우만 처음부터 재생
+                    if audio_element.ended() {
+                        audio_element.set_current_time(0.0);
+                        self.playback_time = 0.0;
+                        web_sys::console::log_1(&"재생이 끝난 상태에서 다시 시작하므로 처음부터 재생".into());
+                    } else {
+                        // 일시 정지된 위치에서 계속 재생
+                        web_sys::console::log_1(&format!("재생 위치 유지: {:.2}초", audio_element.current_time()).into());
+                    }
                     
                     // 기존 이벤트 리스너들 명시적으로 제거
                     audio_element.set_onended(None);
@@ -1065,6 +1071,10 @@ impl Component for PitchAnalyzer {
                 }
                 
                 if let Some(audio_element) = &self.audio_element {
+                    // 현재 재생 시간 기록
+                    self.playback_time = audio_element.current_time();
+                    web_sys::console::log_1(&format!("일시 정지 시점 시간 저장: {:.2}초", self.playback_time).into());
+                    
                     // 오디오 요소가 있으면 일시정지
                     if let Err(err) = audio_element.pause() {
                         web_sys::console::error_1(&format!("재생 일시정지 실패: {:?}", err).into());
@@ -1147,6 +1157,12 @@ impl Component for PitchAnalyzer {
                 // 상태 초기화
                 self.is_playing = false;
                 self.playback_time = 0.0;
+                
+                // 오디오 요소 위치도 초기화
+                if let Some(audio_element) = &self.audio_element {
+                    audio_element.set_current_time(0.0);
+                    web_sys::console::log_1(&"오디오 요소의 위치도 초기화됨".into());
+                }
                 
                 // 재생 종료 이벤트 발행
                 if let Some(window) = web_sys::window() {
