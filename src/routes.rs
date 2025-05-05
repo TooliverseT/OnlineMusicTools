@@ -108,7 +108,39 @@ pub fn pitch_controls() -> Html {
     let mic_active = use_state(|| false);
     let monitor_active = use_state(|| false);
     let is_playing = use_state(|| false);
-    let speaker_gain = use_state(|| 0.02f32); // 스피커 게인 (기본값 0.02)
+    let speaker_gain = use_state(|| 0.02f32);
+    let has_recorded = use_state(|| false);
+
+    // 재생 완료 이벤트 리스너 추가
+    {
+        let is_playing = is_playing.clone();
+        let mic_active = mic_active.clone();
+        
+        use_effect(move || {
+            let window = web_sys::window().expect("window를 찾을 수 없습니다");
+            let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            let is_playing_clone = is_playing.clone();
+            let mic_active_clone = mic_active.clone();
+            
+            let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                // 재생이 끝나면 재생 상태 변경 및 마이크 활성화
+                is_playing_clone.set(false);
+                mic_active_clone.set(false);
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "playbackEnded", 
+                callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 메모리 누수 방지를 위해 클로저 유지
+            callback.forget();
+            
+            // 클린업 함수
+            || {}
+        });
+    }
 
     let on_sensitivity_change = {
         let sensitivity = sensitivity.clone();
@@ -199,17 +231,19 @@ pub fn pitch_controls() -> Html {
     let toggle_audio = {
         let mic_active = mic_active.clone();
         let is_playing = is_playing.clone();
+        let has_recorded = has_recorded.clone();
         Callback::from(move |_| {
-            // 재생 중이면 마이크 활성화 불가
             if *is_playing {
                 return;
             }
             
-            // 마이크 상태 토글
             let new_state = !*mic_active;
             mic_active.set(new_state);
+            
+            if new_state {
+                has_recorded.set(true);
+            }
 
-            // 마이크 토글 이벤트 발생
             let event = CustomEvent::new_with_event_init_dict(
                 "toggleAudio",
                 CustomEventInit::new()
@@ -260,17 +294,19 @@ pub fn pitch_controls() -> Html {
     let toggle_playback = {
         let is_playing = is_playing.clone();
         let mic_active = mic_active.clone();
+        let has_recorded = has_recorded.clone();
         Callback::from(move |_| {
-            // 마이크 활성화 상태에서는 재생 불가
             if *mic_active {
                 return;
             }
             
-            // 재생 상태 토글
             let new_state = !*is_playing;
             is_playing.set(new_state);
             
-            // 재생 토글 이벤트 발생
+            if !new_state {
+                mic_active.set(false);
+            }
+            
             let event = CustomEvent::new_with_event_init_dict(
                 "togglePlayback",
                 CustomEventInit::new()
@@ -326,12 +362,11 @@ pub fn pitch_controls() -> Html {
                     { if *monitor_active { "🔊" } else { "🔈" } }
                 </button>
                 
-                // 재생/일시정지 버튼 추가
                 <button
                     class={classes!("icon-button", if *is_playing { "play-active" } else { "" })}
                     onclick={toggle_playback}
                     title={if *is_playing { "일시정지" } else { "재생" }}
-                    disabled={*mic_active}
+                    disabled={*mic_active || !*has_recorded}
                 >
                     { if *is_playing { "⏸️" } else { "▶️" } }
                 </button>

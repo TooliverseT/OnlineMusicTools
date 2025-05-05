@@ -1148,6 +1148,15 @@ impl Component for PitchAnalyzer {
                 self.is_playing = false;
                 self.playback_time = 0.0;
                 
+                // 재생 종료 이벤트 발행
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        let event = web_sys::Event::new("playbackEnded").unwrap();
+                        let _ = document.dispatch_event(&event);
+                        web_sys::console::log_1(&"playbackEnded 이벤트 발행".into());
+                    }
+                }
+                
                 true
             }
 
