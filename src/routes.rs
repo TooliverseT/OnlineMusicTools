@@ -108,8 +108,14 @@ pub fn pitch_controls() -> Html {
     let mic_active = use_state(|| false);
     let monitor_active = use_state(|| false);
     let is_playing = use_state(|| false);
-    let speaker_gain = use_state(|| 0.02f32);
     let has_recorded = use_state(|| false);
+    let speaker_gain = use_state(|| 0.02f32);
+    
+    // 재생 정보 상태 추가
+    let current_time = use_state(|| 0.0f64);        // 현재 재생 시간
+    let duration = use_state(|| 0.0f64);            // 총 녹음 시간
+    let progress = use_state(|| 0.0f64);            // 진행률 (0~1)
+    let is_seeking = use_state(|| false);           // 시크 중인지 여부
 
     // 재생 완료 이벤트 리스너 추가
     {
@@ -342,6 +348,436 @@ pub fn pitch_controls() -> Html {
         })
     };
 
+    // 게이지 바 이벤트 핸들러 - change 이벤트
+    let on_progress_change = {
+        let progress = progress.clone();
+        let is_seeking = is_seeking.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        Callback::from(move |e: web_sys::Event| {
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    // input의 value 값 읽기
+                    let value = input.value().parse::<f64>().unwrap_or(0.0);
+                    
+                    // 1. 먼저 React 상태 업데이트
+                    progress.set(value);
+                    
+                    // 2. 시간 값도 업데이트
+                    if *duration > 0.0 {
+                        let seek_time = value * *duration;
+                        current_time.set(seek_time);
+                    }
+                    
+                    // 3. Seek 이벤트 발생 (전역 이벤트)
+                    let window = web_sys::window().unwrap();
+                    let document = window.document().unwrap();
+                    
+                    let custom_event = CustomEvent::new_with_event_init_dict(
+                        "seekPlayback",
+                        CustomEventInit::new()
+                            .bubbles(true)
+                            .detail(&JsValue::from_f64(value)),
+                    ).unwrap();
+                    
+                    // 4. 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
+                    let _ = document.dispatch_event(&custom_event);
+                    
+                    // 5. 약간의 지연 후 강제로 DOM 업데이트 (closure 사용)
+                    let input_clone = input.clone();
+                    let value_clone = value;
+                    
+                    // setTimeout을 사용하여 비동기로 DOM 강제 업데이트
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        &Closure::once_into_js(move || {
+                            input_clone.set_value(&value_clone.to_string());
+                        }).as_ref().unchecked_ref(),
+                        5, // 5ms 지연
+                    );
+                    
+                    // 시크 종료 상태 설정
+                    is_seeking.set(false);
+                }
+            }
+        })
+    };
+    
+    // 게이지 바 input 이벤트 핸들러 추가 (드래그 중 실시간 업데이트)
+    let on_progress_input = {
+        let progress = progress.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        Callback::from(move |e: web_sys::InputEvent| {
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    // input의 value 값 읽기
+                    let value = input.value().parse::<f64>().unwrap_or(0.0);
+                    
+                    // 1. 먼저 React 상태 업데이트
+                    progress.set(value);
+                    
+                    // 2. 시간 값도 업데이트
+                    if *duration > 0.0 {
+                        let seek_time = value * *duration;
+                        current_time.set(seek_time);
+                    }
+                    
+                    // 3. Seek 이벤트 발생 (전역 이벤트)
+                    let window = web_sys::window().unwrap();
+                    let document = window.document().unwrap();
+                    
+                    let custom_event = CustomEvent::new_with_event_init_dict(
+                        "seekPlayback",
+                        CustomEventInit::new()
+                            .bubbles(true)
+                            .detail(&JsValue::from_f64(value)),
+                    ).unwrap();
+                    
+                    // 4. 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
+                    let _ = document.dispatch_event(&custom_event);
+                }
+            }
+        })
+    };
+    
+    // 시크 시작 및 종료 핸들러
+    let on_seek_start = {
+        let is_seeking = is_seeking.clone();
+        let progress = progress.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        Callback::from(move |e: web_sys::MouseEvent| {
+            is_seeking.set(true);
+            
+            // 마우스 이벤트 기록 (디버깅용)
+            web_sys::console::log_1(&"마우스 드래그 시작".into());
+            
+            // 바로 클릭 위치에 게이지 위치 업데이트
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    // 요소의 위치와 크기 정보 가져오기
+                    let rect = input.get_bounding_client_rect();
+                    
+                    // 요소 내에서의 상대적 위치 계산 (0~1 사이의 값으로 정규화)
+                    let rel_x = (e.client_x() as f64 - rect.left()) / rect.width();
+                    let value = rel_x.max(0.0).min(1.0); // 0~1 범위로 제한
+                    
+                    // 1. 첫 번째로 DOM에 직접 반영 (input의 value 속성)
+                    input.set_value(&value.to_string());
+                    
+                    // 2. 상태 업데이트 (Yew 컴포넌트 상태)
+                    progress.set(value);
+                    
+                    // 3. 시간 값도 업데이트
+                    if *duration > 0.0 {
+                        let seek_time = value * *duration;
+                        current_time.set(seek_time);
+                    }
+                    
+                    // 4. 비동기적으로 UI를 강제로 업데이트하는 이벤트 발생
+                    let window = web_sys::window().unwrap();
+                    let document = window.document().unwrap();
+                    
+                    // 입력 이벤트 발생
+                    let input_event = web_sys::InputEvent::new("input").unwrap();
+                    let _ = input.dispatch_event(&input_event);
+                    
+                    // change 이벤트 발생
+                    let change_event = web_sys::Event::new("change").unwrap();
+                    let _ = input.dispatch_event(&change_event);
+                    
+                    // 5. Seek 이벤트 발생 (전역 이벤트)
+                    let custom_event = CustomEvent::new_with_event_init_dict(
+                        "seekPlayback",
+                        CustomEventInit::new()
+                            .bubbles(true)
+                            .detail(&JsValue::from_f64(value)),
+                    ).unwrap();
+                    
+                    // 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
+                    let _ = document.dispatch_event(&custom_event);
+                    
+                    // 6. 약간의 지연 후 강제로 DOM 업데이트 (closure 사용)
+                    let input_clone = input.clone();
+                    let value_clone = value;
+                    
+                    // setTimeout을 사용하여 비동기로 DOM 강제 업데이트
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        &Closure::once_into_js(move || {
+                            input_clone.set_value(&value_clone.to_string());
+                        }).as_ref().unchecked_ref(),
+                        10, // 10ms 지연
+                    );
+                    
+                    web_sys::console::log_1(&format!("클릭 위치: {:.2}, 게이지 값: {:.3}", rel_x, value).into());
+                }
+            }
+        })
+    };
+    
+    let on_seek_end = {
+        let is_seeking = is_seeking.clone();
+        Callback::from(move |e: web_sys::MouseEvent| {
+            is_seeking.set(false);
+            
+            // 마우스 이벤트 기록 (디버깅용)
+            web_sys::console::log_1(&"마우스 드래그 종료".into());
+            
+            // 드래그 종료 시 강제로 DOM 업데이트 이벤트 발생
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    // input 요소에 change 이벤트 발생
+                    let change_event = web_sys::Event::new("change").unwrap();
+                    let _ = input.dispatch_event(&change_event);
+                }
+            }
+        })
+    };
+    
+    // 터치 이벤트용 핸들러 (모바일용)
+    let on_touch_start = {
+        let is_seeking = is_seeking.clone();
+        Callback::from(move |_: web_sys::TouchEvent| {
+            is_seeking.set(true);
+        })
+    };
+    
+    let on_touch_move = {
+        let progress = progress.clone();
+        let is_seeking = is_seeking.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        Callback::from(move |e: web_sys::TouchEvent| {
+            // 시크 중일 때만 처리
+            if !*is_seeking {
+                return;
+            }
+            
+            // 기본 동작 방지
+            e.prevent_default();
+            
+            // 터치 위치 정보 가져오기
+            if e.touches().length() > 0 {
+                let touch = e.touches().get(0).unwrap();
+                
+                if let Some(target) = e.target() {
+                    if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                        // 요소의 위치와 크기 정보 가져오기
+                        let rect = input.get_bounding_client_rect();
+                        
+                        // 요소 내에서의 상대적 위치 계산 (0~1 사이의 값으로 정규화)
+                        let rel_x = (touch.client_x() as f64 - rect.left()) / rect.width();
+                        let value = rel_x.max(0.0).min(1.0); // 0~1 범위로 제한
+                        
+                        // 1. 첫 번째로 DOM에 직접 반영 (input의 value 속성)
+                        input.set_value(&value.to_string());
+                        
+                        // 2. 상태 업데이트 (Yew 컴포넌트 상태)
+                        progress.set(value);
+                        
+                        // 3. 비동기적으로 UI를 강제로 업데이트하는 이벤트 발생
+                        let window = web_sys::window().unwrap();
+                        let document = window.document().unwrap();
+                        
+                        // 입력 이벤트 발생
+                        let input_event = web_sys::InputEvent::new("input").unwrap();
+                        let _ = input.dispatch_event(&input_event);
+                        
+                        // change 이벤트 발생
+                        let change_event = web_sys::Event::new("change").unwrap();
+                        let _ = input.dispatch_event(&change_event);
+                        
+                        // 4. 시간 값도 업데이트
+                        if *duration > 0.0 {
+                            let seek_time = value * *duration;
+                            current_time.set(seek_time);
+                        }
+                        
+                        // 5. Seek 이벤트 발생 (전역 이벤트)
+                        let custom_event = CustomEvent::new_with_event_init_dict(
+                            "seekPlayback",
+                            CustomEventInit::new()
+                                .bubbles(true)
+                                .detail(&JsValue::from_f64(value)),
+                        ).unwrap();
+                        
+                        // 6. 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
+                        let _ = document.dispatch_event(&custom_event);
+                        
+                        // 7. 약간의 지연 후 강제로 DOM 업데이트 (closure 사용)
+                        let input_clone = input.clone();
+                        let value_clone = value;
+                        
+                        // setTimeout을 사용하여 비동기로 DOM 강제 업데이트
+                        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                            &Closure::once_into_js(move || {
+                                input_clone.set_value(&value_clone.to_string());
+                            }).as_ref().unchecked_ref(),
+                            10, // 10ms 지연
+                        );
+                    }
+                }
+            }
+        })
+    };
+
+    let on_touch_end = {
+        let is_seeking = is_seeking.clone();
+        Callback::from(move |_: web_sys::TouchEvent| {
+            is_seeking.set(false);
+        })
+    };
+
+    // 재생 시간 업데이트 이벤트 리스너 추가
+    {
+        let current_time_clone = current_time.clone();
+        let duration_clone = duration.clone();
+        let progress_clone = progress.clone();
+        let is_seeking_clone = is_seeking.clone();
+        let is_playing_clone = is_playing.clone();
+        let has_recorded_clone = has_recorded.clone();
+        
+        use_effect(move || {
+            let window = web_sys::window().expect("window를 찾을 수 없습니다");
+            let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            // 재생 시간 업데이트 이벤트 리스너
+            let playback_time_callback = Closure::wrap(Box::new(move |e: web_sys::CustomEvent| {
+                // 드래그 중에도 시간 정보는 업데이트 (단, 슬라이더 위치는 고정)
+                let detail = e.detail();
+                let data = js_sys::Object::from(detail);
+                
+                // currentTime과 duration 값 추출
+                if let Ok(current) = js_sys::Reflect::get(&data, &JsValue::from_str("currentTime")) {
+                    if let Some(time) = current.as_f64() {
+                        current_time_clone.set(time);
+                    }
+                }
+                
+                if let Ok(total) = js_sys::Reflect::get(&data, &JsValue::from_str("duration")) {
+                    if let Some(d) = total.as_f64() {
+                        duration_clone.set(d);
+                        
+                        // 시크 중이 아닐 때만 진행률 계산 및 업데이트
+                        if !*is_seeking_clone && d > 0.0 {
+                            let prog = *current_time_clone / d;
+                            progress_clone.set(prog);
+                        }
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "playbackTimeUpdate", 
+                playback_time_callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 재생 상태 업데이트 이벤트 리스너
+            let state_callback = Closure::wrap(Box::new(move |e: web_sys::CustomEvent| {
+                let detail = e.detail();
+                
+                if let Some(state) = detail.as_bool() {
+                    is_playing_clone.set(state);
+                    
+                    if state {
+                        // 재생이 시작되면 has_recorded를 true로 설정
+                        has_recorded_clone.set(true);
+                    }
+                }
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "playbackStateChange", 
+                state_callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 메모리 누수 방지를 위해 클로저 유지
+            playback_time_callback.forget();
+            state_callback.forget();
+            
+            // 클린업 함수
+            || {}
+        });
+    }
+
+    // 시간 포맷 함수
+    let format_time = |seconds: f64| -> String {
+        let minutes = (seconds / 60.0).floor() as i32;
+        let secs = (seconds % 60.0).floor() as i32;
+        let ms = ((seconds % 1.0) * 100.0).round() as i32; // 밀리초 두 자리
+        format!("{:02}:{:02}.{:02}", minutes, secs, ms)
+    };
+
+    // 마우스 이동 이벤트 핸들러 (드래그 중에 게이지 업데이트)
+    let on_mouse_move = {
+        let progress = progress.clone();
+        let is_seeking = is_seeking.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        Callback::from(move |e: web_sys::MouseEvent| {
+            // 시크 중일 때만 처리
+            if !*is_seeking {
+                return;
+            }
+            
+            if let Some(target) = e.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    // 요소의 위치와 크기 정보 가져오기
+                    let rect = input.get_bounding_client_rect();
+                    
+                    // 요소 내에서의 상대적 위치 계산 (0~1 사이의 값으로 정규화)
+                    let rel_x = (e.client_x() as f64 - rect.left()) / rect.width();
+                    let value = rel_x.max(0.0).min(1.0); // 0~1 범위로 제한
+                    
+                    // 1. 첫 번째로 DOM에 직접 반영 (input의 value 속성)
+                    input.set_value(&value.to_string());
+                    
+                    // 2. 상태 업데이트 (Yew 컴포넌트 상태)
+                    progress.set(value);
+                    
+                    // 3. 시간 값도 업데이트
+                    if *duration > 0.0 {
+                        let seek_time = value * *duration;
+                        current_time.set(seek_time);
+                    }
+                    
+                    // 4. 비동기적으로 UI를 강제로 업데이트하는 이벤트 발생
+                    let window = web_sys::window().unwrap();
+                    let document = window.document().unwrap();
+                    
+                    // 입력 이벤트 발생
+                    let input_event = web_sys::InputEvent::new("input").unwrap();
+                    let _ = input.dispatch_event(&input_event);
+                    
+                    // 5. Seek 이벤트 발생 (전역 이벤트)
+                    let custom_event = CustomEvent::new_with_event_init_dict(
+                        "seekPlayback",
+                        CustomEventInit::new()
+                            .bubbles(true)
+                            .detail(&JsValue::from_f64(value)),
+                    ).unwrap();
+                    
+                    // 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
+                    let _ = document.dispatch_event(&custom_event);
+                    
+                    // 6. 약간의 지연 후 강제로 DOM 업데이트 (closure 사용)
+                    let input_clone = input.clone();
+                    let value_clone = value;
+                    
+                    // setTimeout을 사용하여 비동기로 DOM 강제 업데이트
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        &Closure::once_into_js(move || {
+                            input_clone.set_value(&value_clone.to_string());
+                        }).as_ref().unchecked_ref(),
+                        10, // 10ms 지연
+                    );
+                    
+                    web_sys::console::log_1(&format!("마우스 이동: {:.2}, 게이지 값: {:.3}", rel_x, value).into());
+                }
+            }
+        })
+    };
+
     html! {
         <div class="pitch-controls navbar-item">
             <div class="navbar-controls-buttons">
@@ -370,6 +806,38 @@ pub fn pitch_controls() -> Html {
                 >
                     { if *is_playing { "⏸️" } else { "▶️" } }
                 </button>
+                
+                // 재생 게이지 바 추가
+                {
+                    if *has_recorded {
+                        html! {
+                            <div class="playback-progress">
+                                <span class="time-display current-time">{ format_time(*current_time) }</span>
+                                <input 
+                                    type="range"
+                                    class="progress-bar"
+                                    min="0"
+                                    max="1"
+                                    step="0.001"
+                                    value={(*progress).to_string()}
+                                    onchange={on_progress_change}
+                                    oninput={on_progress_input}
+                                    onmousedown={on_seek_start}
+                                    onmouseup={on_seek_end}
+                                    onmousemove={on_mouse_move}
+                                    ontouchstart={on_touch_start}
+                                    ontouchmove={on_touch_move}
+                                    ontouchend={on_touch_end}
+                                    disabled={*mic_active}
+                                    style="cursor: pointer;"
+                                />
+                                <span class="time-display duration">{ format_time(*duration) }</span>
+                            </div>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
                 
                 <button class="icon-button" onclick={toggle_links} title={if *show_links { "링크 숨기기" } else { "링크 표시하기" }}>
                     { if *show_links { "🔗" } else { "🔓" } }

@@ -45,6 +45,9 @@ web-sys = { version = "0.3.69", features = [
     "Url",
     "HtmlAudioElement",
     "RecordingState",
+    "TouchEvent",
+    "TouchList",
+    "Touch"
 ] }
 wasm-bindgen-futures = "0.4.50"
 

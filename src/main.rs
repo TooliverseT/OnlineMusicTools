@@ -2,7 +2,7 @@ use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::pitch_plot::PitchPlot;
 use crate::routes::{switch, Route};
 use gloo::events::EventListener;
-use js_sys::{Float32Array, Promise};
+use js_sys::{Float32Array, Promise, Object};
 use log::info;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     AnalyserNode, AudioContext, HtmlCanvasElement, MediaDevices, MediaStream,
-    MediaStreamAudioSourceNode, MediaStreamConstraints, Navigator,
+    MediaStreamAudioSourceNode, MediaStreamConstraints, Navigator, CustomEvent, CustomEventInit,
 };
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -228,6 +228,45 @@ pub struct PitchAnalyzer {
     recording_start_time: f64,   // 녹음 시작 시간 (audio_ctx 기준)
 }
 
+// PitchAnalyzer 일반 메서드 구현
+impl PitchAnalyzer {
+    // 재생 시간 UI 업데이트 메서드
+    fn update_playback_time_ui(&self, time: f64) {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                // 재생 시간 업데이트 이벤트 발행
+                let mut detail = Object::new();
+                // currentTime 속성 설정
+                let _ = js_sys::Reflect::set(
+                    &detail,
+                    &JsValue::from_str("currentTime"),
+                    &JsValue::from_f64(time),
+                );
+                // duration 속성 설정
+                let _ = js_sys::Reflect::set(
+                    &detail,
+                    &JsValue::from_str("duration"),
+                    &JsValue::from_f64(self.last_recording_time),
+                );
+                
+                let event = CustomEvent::new_with_event_init_dict(
+                    "playbackTimeUpdate",
+                    CustomEventInit::new()
+                        .bubbles(true)
+                        .detail(&detail),
+                ).unwrap();
+                
+                let _ = document.dispatch_event(&event);
+            }
+        }
+    }
+    
+    // 녹음된 오디오가 있는지 확인하는 헬퍼 메서드
+    fn has_recorded_audio(&self) -> bool {
+        self.recorded_audio_url.is_some() && self.audio_element.is_some()
+    }
+}
+
 pub enum Msg {
     StartAudio,
     StopAudio,   // 🔇 마이크 비활성화 메시지 추가
@@ -252,6 +291,9 @@ pub enum Msg {
     UpdatePlaybackTime(f64), // 재생 시간 업데이트
     PlaybackEnded,           // 재생 완료
     RecorderReady(web_sys::MediaRecorder), // 새로 추가된 메시지 타입
+    
+    // 새로운 메시지 타입 추가: 시크 (재생 위치 변경)
+    SeekPlayback(f64),
 }
 
 impl Component for PitchAnalyzer {
@@ -337,8 +379,27 @@ impl Component for PitchAnalyzer {
             playback_callback.emit(e.clone());
         });
         
+        // 재생 시크 이벤트 리스너 추가
+        let seek_link = ctx.link().clone();
+        let seek_callback = Callback::from(move |e: web_sys::Event| {
+            let custom_event = e.dyn_into::<web_sys::CustomEvent>().unwrap();
+            let detail = custom_event.detail();
+            let progress = js_sys::Number::from(detail).value_of() as f64;
+            
+            // 진행률 값 검증 (0.0 ~ 1.0 범위로 제한)
+            let progress = progress.max(0.0).min(1.0);
+            
+            // SeekPlayback 메시지 전송
+            seek_link.send_message(Msg::SeekPlayback(progress));
+        });
+        
+        let seek_listener = EventListener::new(&document, "seekPlayback", move |e| {
+            seek_callback.emit(e.clone());
+        });
+        
+        // 모든 이벤트 리스너 forget 호출
+        seek_listener.forget();
         playback_listener.forget();
-
         toggle_audio_listener.forget();
         sensitivity_listener.forget();
         toggle_listener.forget();
@@ -1033,6 +1094,22 @@ impl Component for PitchAnalyzer {
                     
                     web_sys::console::log_1(&format!("재생 시작됨, is_playing={}", self.is_playing).into());
                     
+                    // 재생 상태 이벤트 발행
+                    if let Some(window) = web_sys::window() {
+                        if let Some(document) = window.document() {
+                            let event = CustomEvent::new_with_event_init_dict(
+                                "playbackStateChange",
+                                CustomEventInit::new()
+                                    .bubbles(true)
+                                    .detail(&JsValue::from_bool(true)),
+                            ).unwrap();
+                            let _ = document.dispatch_event(&event);
+                        }
+                    }
+                    
+                    // 재생 시간 UI 업데이트 (초기 로딩 시)
+                    self.update_playback_time_ui(audio_element.current_time());
+                    
                     // 재생 상태 업데이트를 위한 인터벌 설정
                     let link = ctx.link().clone();
                     let audio_element_clone = audio_element.clone();
@@ -1088,6 +1165,19 @@ impl Component for PitchAnalyzer {
                     self.is_playing = false;
                     web_sys::console::log_1(&"재생 일시정지됨".into());
                     
+                    // 재생 상태 이벤트 발행
+                    if let Some(window) = web_sys::window() {
+                        if let Some(document) = window.document() {
+                            let event = CustomEvent::new_with_event_init_dict(
+                                "playbackStateChange",
+                                CustomEventInit::new()
+                                    .bubbles(true)
+                                    .detail(&JsValue::from_bool(false)),
+                            ).unwrap();
+                            let _ = document.dispatch_event(&event);
+                        }
+                    }
+                    
                     true
                 } else {
                     // 오디오 요소가 없으면 일시정지 불가
@@ -1116,15 +1206,61 @@ impl Component for PitchAnalyzer {
                 // 재생 시간 업데이트
                 self.playback_time = time;
                 
+                // UI에 재생 시간과 총 녹음 시간 정보 전달
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        // 재생 시간 업데이트 이벤트 발행
+                        let mut detail = Object::new();
+                        // currentTime 속성 설정
+                        let _ = js_sys::Reflect::set(
+                            &detail,
+                            &JsValue::from_str("currentTime"),
+                            &JsValue::from_f64(time),
+                        );
+                        // duration 속성 설정
+                        let _ = js_sys::Reflect::set(
+                            &detail,
+                            &JsValue::from_str("duration"),
+                            &JsValue::from_f64(self.last_recording_time),
+                        );
+                        
+                        let event = CustomEvent::new_with_event_init_dict(
+                            "playbackTimeUpdate",
+                            CustomEventInit::new()
+                                .bubbles(true)
+                                .detail(&detail),
+                        ).unwrap();
+                        
+                        let _ = document.dispatch_event(&event);
+                    }
+                }
+                
                 // 현재 재생 시점의 주파수 찾기
                 if let Some((closest_t, freqs)) = self.history.iter()
-                    .filter(|(t, _)| (t - time).abs() < 0.2) // 시간 허용 오차 설정
-                    .min_by(|(t1, _), (t2, _)| (t1 - time).abs().partial_cmp(&(t2 - time).abs()).unwrap()) {
+                    .filter(|(t, fs)| (t - time).abs() < 0.2 && !fs.is_empty()) // 시간 허용 오차 설정
+                    .min_by(|(t1, _), (t2, _)| {
+                        let diff1 = (t1 - time).abs();
+                        let diff2 = (t2 - time).abs();
+                        diff1.partial_cmp(&diff2).unwrap_or(std::cmp::Ordering::Equal)
+                    }) {
                     
                     if !freqs.is_empty() {
                         let current_playback_freq = freqs[0].0;
-                        web_sys::console::log_1(&format!("🔊 재생 시간 {:.2}s의 주파수: {:.2}Hz", time, current_playback_freq).into());
+                        
+                        // 현재 주파수 값 업데이트 (PitchPlot에 표시됨)
+                        self.current_freq = current_playback_freq;
+                        
+                        // 주파수에 해당하는 음표명도 업데이트
+                        if current_playback_freq > 0.0 {
+                            self.pitch = frequency_to_note_octave(current_playback_freq);
+                        }
+                        
+                        web_sys::console::log_1(&format!("🎵 재생 시간 {:.2}s의 주파수: {:.2}Hz ({})", 
+                            time, current_playback_freq, self.pitch).into());
                     }
+                } else {
+                    // 해당 시점에 주파수 데이터가 없으면 0으로 설정 (표시 안 함)
+                    self.current_freq = 0.0;
                 }
                 
                 // 재생 최대 시간 업데이트 (기록된 history의 마지막 시간값과 비교)
@@ -1164,9 +1300,19 @@ impl Component for PitchAnalyzer {
                     web_sys::console::log_1(&"오디오 요소의 위치도 초기화됨".into());
                 }
                 
-                // 재생 종료 이벤트 발행
+                // 재생 상태 이벤트 발행
                 if let Some(window) = web_sys::window() {
                     if let Some(document) = window.document() {
+                        // 재생 상태 변경 이벤트 발행
+                        let event = CustomEvent::new_with_event_init_dict(
+                            "playbackStateChange",
+                            CustomEventInit::new()
+                                .bubbles(true)
+                                .detail(&JsValue::from_bool(false)),
+                        ).unwrap();
+                        let _ = document.dispatch_event(&event);
+                        
+                        // 재생 종료 이벤트 발행
                         let event = web_sys::Event::new("playbackEnded").unwrap();
                         let _ = document.dispatch_event(&event);
                         web_sys::console::log_1(&"playbackEnded 이벤트 발행".into());
@@ -1180,6 +1326,111 @@ impl Component for PitchAnalyzer {
                 // 레코더 객체 저장
                 self.recorder = Some(recorder);
                 true
+            }
+            
+            // 새로운 메시지 타입 추가: 시크 (재생 위치 변경)
+            Msg::SeekPlayback(progress) => {
+                if !self.has_recorded_audio() || self.is_recording {
+                    return false;
+                }
+                
+                if let Some(audio_element) = &self.audio_element {
+                    // 전체 녹음 시간
+                    let total_duration = self.last_recording_time;
+                    
+                    // 진행률을 시간으로 변환
+                    let seek_time = progress * total_duration;
+                    
+                    // 0보다 작거나 총 길이보다 크면 제한
+                    let seek_time = seek_time.max(0.0).min(total_duration);
+                    
+                    // 현재 재생 중인지 상태 저장
+                    let was_playing = self.is_playing;
+                    
+                    // 시크 위치의 시간값 업데이트 (항상 수행)
+                    self.playback_time = seek_time;
+                    
+                    // 현재 시크 위치의 주파수 정보 검색 및 업데이트
+                    if let Some((_, freqs)) = self.history.iter()
+                        .filter(|(t, fs)| (t - seek_time).abs() < 0.2 && !fs.is_empty()) // 0.2초 내의 데이터 중 주파수가 있는 것
+                        .min_by(|(t1, _), (t2, _)| {
+                            let diff1 = (t1 - seek_time).abs();
+                            let diff2 = (t2 - seek_time).abs();
+                            diff1.partial_cmp(&diff2).unwrap_or(std::cmp::Ordering::Equal)
+                        }) {
+                        
+                        // 가장 강한 주파수 (첫 번째 요소)로 현재 주파수 업데이트
+                        if !freqs.is_empty() {
+                            let strongest_freq = freqs[0].0;
+                            self.current_freq = strongest_freq;
+                            
+                            if strongest_freq > 0.0 {
+                                self.pitch = frequency_to_note_octave(strongest_freq);
+                                web_sys::console::log_1(&format!("🎵 시크 위치의 주파수: {:.2}Hz ({})", 
+                                    strongest_freq, self.pitch).into());
+                            }
+                        }
+                    }
+                    
+                    // UI 시간 업데이트 (항상 수행)
+                    self.update_playback_time_ui(seek_time);
+                    
+                    // 재생 중인 경우에만 오디오 요소의 재생 위치 변경 및 재생 상태 유지
+                    if was_playing {
+                        // 일시 중지
+                        if let Err(err) = audio_element.pause() {
+                            web_sys::console::error_1(&format!("시크 전 일시 중지 실패: {:?}", err).into());
+                        }
+                        
+                        // 오디오 요소의 재생 위치 변경
+                        audio_element.set_current_time(seek_time);
+                        
+                        web_sys::console::log_1(&format!("🎯 재생 위치 변경: {:.2}초 ({:.1}%)", 
+                            seek_time, progress * 100.0).into());
+                        
+                        // 재생 시작
+                        if let Err(err) = audio_element.play() {
+                            web_sys::console::error_1(&format!("시크 후 재생 시작 실패: {:?}", err).into());
+                        } else {
+                            // 재생 상태 유지
+                            
+                            // 재생 인터벌이 없으면 다시 설정
+                            if self.playback_interval.is_none() {
+                                let link = ctx.link().clone();
+                                let audio_element_clone = audio_element.clone();
+                                
+                                // 새 인터벌 생성
+                                let interval = gloo::timers::callback::Interval::new(100, move || {
+                                    // 오디오 요소가 아직 유효한지 확인
+                                    if audio_element_clone.ended() {
+                                        web_sys::console::log_1(&"재생 종료 감지됨 (인터벌)".into());
+                                        link.send_message(Msg::PlaybackEnded);
+                                        return;
+                                    }
+                                    
+                                    // 현재 재생 시간 가져오기
+                                    let current_time = audio_element_clone.current_time();
+                                    
+                                    // 시간 업데이트 메시지 전송 - 모든 시간값 전송
+                                    link.send_message(Msg::UpdatePlaybackTime(current_time));
+                                });
+                                
+                                // 인터벌 핸들 저장
+                                self.playback_interval = Some(interval);
+                            }
+                        }
+                    } else {
+                        // 일시정지 상태에서는 오디오 요소의 currentTime만 업데이트하고, 재생은 시작하지 않음
+                        audio_element.set_current_time(seek_time);
+                        web_sys::console::log_1(&format!("🎯 재생 위치만 변경: {:.2}초 ({:.1}%)", 
+                            seek_time, progress * 100.0).into());
+                    }
+                    
+                    true
+                } else {
+                    web_sys::console::error_1(&"시크할 오디오 요소가 없음".into());
+                    false
+                }
             }
         }
     }
