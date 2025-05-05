@@ -226,6 +226,12 @@ pub struct PitchAnalyzer {
     // 인터벌 타이머 핸들 추가
     playback_interval: Option<gloo::timers::callback::Interval>,
     recording_start_time: f64,   // 녹음 시작 시간 (audio_ctx 기준)
+    
+    // 분석 인터벌 추가
+    analysis_interval: Option<gloo::timers::callback::Interval>,
+    
+    // 화면 고정 상태 추가
+    is_frozen: bool,
 }
 
 // PitchAnalyzer 일반 메서드 구현
@@ -306,6 +312,9 @@ pub enum Msg {
     
     // 오디오 위치 초기화 메시지
     ResetAudioPosition,
+
+    // 새 메시지 추가: 오디오 리소스 정리
+    StopAudioResources,
 }
 
 impl Component for PitchAnalyzer {
@@ -447,6 +456,12 @@ impl Component for PitchAnalyzer {
             // 인터벌 타이머 핸들 추가
             playback_interval: None,
             recording_start_time: 0.0,   // 녹음 시작 시간 (audio_ctx 기준)
+            
+            // 분석 인터벌 추가
+            analysis_interval: None,
+            
+            // 화면 고정 상태 추가
+            is_frozen: false,
         }
     }
 
@@ -496,6 +511,16 @@ impl Component for PitchAnalyzer {
                             
                             // MediaRecorder 설정
                             let recorder_options = web_sys::MediaRecorderOptions::new();
+                            // 오디오 품질을 높이기 위해 bitsPerSecond 값 설정 (높은 비트레이트)
+                            let mut options_obj = js_sys::Object::new();
+                            js_sys::Reflect::set(&options_obj, &JsValue::from_str("audioBitsPerSecond"), &JsValue::from_f64(128000.0))
+                                .expect("Failed to set audioBitsPerSecond");
+                            js_sys::Reflect::set(&options_obj, &JsValue::from_str("mimeType"), &JsValue::from_str("audio/webm;codecs=opus"))
+                                .expect("Failed to set mimeType");
+
+                            // options_obj를 recorder_options로 변환
+                            let recorder_options = options_obj.unchecked_into::<web_sys::MediaRecorderOptions>();
+
                             if let Ok(recorder) = web_sys::MediaRecorder::new_with_media_stream_and_media_recorder_options(&stream, &recorder_options) {
                                 // 데이터 가용 이벤트 핸들러 설정
                                 let link_clone = link.clone();
@@ -509,8 +534,8 @@ impl Component for PitchAnalyzer {
                                 // 녹음 완료 이벤트 핸들러 설정
                                 let link_clone = link.clone();
                                 let onstop = Closure::wrap(Box::new(move |_: web_sys::Event| {
-                                    // 녹음이 중지되면 명시적으로 StopRecording 메시지 보내서 모든 이벤트 리스너를 제거
-                                    link_clone.send_message(Msg::StopRecording);
+                                    // 녹음이 중지되면 명시적으로 중지됐다는 로그 기록
+                                    web_sys::console::log_1(&"레코더 중지 이벤트 발생 - 사후 처리 시작".into());
                                 }) as Box<dyn FnMut(web_sys::Event)>);
                                 
                                 recorder.set_ondataavailable(Some(ondataavailable.as_ref().unchecked_ref()));
@@ -520,9 +545,12 @@ impl Component for PitchAnalyzer {
                                 ondataavailable.forget();
                                 onstop.forget();
                                 
-                                // 100ms 간격으로 데이터 수집하도록 설정
-                                if let Err(err) = recorder.start_with_time_slice(100) {
+                                // 50ms 간격으로 데이터 수집하도록 설정 (더 작은 청크로 세밀하게 수집)
+                                // 이전보다 더 짧은 간격으로 설정하여 데이터 손실 최소화
+                                if let Err(err) = recorder.start_with_time_slice(50) {
                                     web_sys::console::error_1(&format!("Failed to start recorder: {:?}", err).into());
+                                } else {
+                                    web_sys::console::log_1(&"🎙️ 미디어 레코더 시작 - 50ms 간격으로 데이터 수집".into());
                                 }
                                 
                                 // 레코더 객체를 컴포넌트에 저장
@@ -582,18 +610,24 @@ impl Component for PitchAnalyzer {
                         let note = frequency_to_note_octave(average_freq);
                         self.pitch = format!("🎶 현재 음: {} ({:.2} Hz)", note, average_freq);
 
-                        // 현재 상대 시간과 함께 주파수 목록 기록
-                        self.history.push_back((current_time, freqs));
-                        
-                        // 로그 출력 (디버깅용)
-                        web_sys::console::log_1(&format!("🕒 녹음 경과 시간: {:.2}s, 주파수: {:.2}Hz", current_time, average_freq).into());
+                        // 녹음 중인 경우에만 주파수 기록 업데이트
+                        if self.is_recording {
+                            // 현재 상대 시간과 함께 주파수 목록 기록
+                            self.history.push_back((current_time, freqs));
+                            
+                            // 로그 출력 (디버깅용)
+                            web_sys::console::log_1(&format!("🕒 녹음 경과 시간: {:.2}s, 주파수: {:.2}Hz", current_time, average_freq).into());
+                        }
                     } else {
                         self.pitch = "🔇 너무 작은 소리 (무시됨)".to_string();
                         self.prev_freqs.clear();
                         self.current_freq = 0.0;
 
-                        // 빈 주파수 목록 기록 (시간은 계속 유지)
-                        self.history.push_back((current_time, Vec::new()));
+                        // 녹음 중인 경우에만 빈 주파수 목록 기록
+                        if self.is_recording {
+                            // 빈 주파수 목록 기록 (시간은 계속 유지)
+                            self.history.push_back((current_time, Vec::new()));
+                        }
                     }
                     
                     // 외부 참조용 시간 업데이트
@@ -641,10 +675,12 @@ impl Component for PitchAnalyzer {
                 let link = ctx.link().clone();
                 
                 // 오디오 분석 인터벌 설정 - 녹음 시간 업데이트는 별도로 처리
-                gloo::timers::callback::Interval::new(100, move || {
+                let interval = gloo::timers::callback::Interval::new(100, move || {
                     link.send_message(Msg::UpdatePitch);
-                })
-                .forget();
+                });
+                
+                // 인터벌 핸들 저장
+                self.analysis_interval = Some(interval);
 
                 true
             }
@@ -662,75 +698,26 @@ impl Component for PitchAnalyzer {
             Msg::StopAudio => {
                 // 녹음 중지 먼저 처리
                 if self.is_recording {
-                    if let Some(recorder) = &self.recorder {
-                        if recorder.state() == web_sys::RecordingState::Recording {
-                            recorder.stop().expect("Failed to stop recording");
-                        }
-                    }
-                    self.is_recording = false;
-                    self.last_recording_time = self.elapsed_time;
+                    // 진행 중인 녹음이 있으면 중지 요청만 하고 종료
+                    // 실제 정리는 StopRecording 및 RecordingComplete에서 처리됨
+                    ctx.link().send_message(Msg::StopRecording);
                     
-                    // 녹음된 청크를 결합하여 URL 생성
-                    let blobs = js_sys::Array::new();
-                    for blob in &self.recorded_chunks {
-                        blobs.push(blob);
-                    }
+                    // 녹음 종료가 완료될 때까지 오디오 컨텍스트 정리를 지연시키기 위해
+                    // 비동기 처리를 설정
+                    let link = ctx.link().clone();
                     
-                    if !self.recorded_chunks.is_empty() {
-                        // Blob 배열을 하나의 Blob으로 합치기
-                        let mut blob_options = web_sys::BlobPropertyBag::new();
-                        blob_options.type_("audio/webm");
-                        
-                        if let Ok(combined_blob) = web_sys::Blob::new_with_blob_sequence_and_options(&blobs, &blob_options) {
-                            // Blob 크기 확인
-                            let blob_size = combined_blob.size();
-                            web_sys::console::log_1(&format!("생성된 Blob 크기: {:.2} KB", blob_size / 1024.0).into());
-                            
-                            // Blob URL 생성
-                            let url = web_sys::Url::create_object_url_with_blob(&combined_blob)
-                                .expect("Failed to create object URL");
-                            
-                            // RecordingComplete 메시지 전송
-                            let ctx = ctx.clone();
-                            let link = ctx.link().clone();
-                            link.send_message(Msg::RecordingComplete(url));
-                        } else {
-                            web_sys::console::error_1(&"Failed to combine recorded chunks".into());
-                        }
-                    } else {
-                        web_sys::console::log_1(&"No recorded chunks to process".into());
-                    }
+                    // 1초 후 오디오 컨텍스트 정리를 시도 (녹음 종료 처리에 충분한 시간)
+                    gloo::timers::callback::Timeout::new(1000, move || {
+                        link.send_message(Msg::StopAudioResources);
+                    }).forget();
+                    
+                    return true;
                 }
 
-                // 오디오 컨텍스트가 있으면 정지
-                if let Some(ctx) = &self.audio_ctx {
-                    let _ = ctx.close();
-                }
-
-                // 스트림 트랙 정지
-                if let Some(stream) = &self._stream {
-                    let tracks = stream.get_audio_tracks();
-                    for i in 0..tracks.length() {
-                        let track_js = tracks.get(i);
-                        let track = web_sys::MediaStreamTrack::from(track_js);
-                        track.stop();
-                    }
-                }
-
-                // 상태 초기화
-                self.audio_ctx = None;
-                self.analyser = None;
-                self._stream = None;
-                self.mic_active = false;
-                self.pitch = "🎤 음성 입력 대기...".to_string();
-                self.prev_freqs.clear();
-                self.current_freq = 0.0;
-
-                // 인터벌 정리
-                self.playback_interval = None;
-
+                // 이미 녹음 중이 아니면 즉시 리소스 정리
+                ctx.link().send_message(Msg::StopAudioResources);
                 true
-            }
+            },
 
             Msg::ToggleAudio => {
                 if self.mic_active {
@@ -882,6 +869,9 @@ impl Component for PitchAnalyzer {
                 self.audio_element = None;
                 self.playback_time = 0.0;
                 self.last_recording_time = 0.0;
+                
+                // 화면 고정 해제 - 새로운 녹음 시작 시
+                self.is_frozen = false;
 
                 // 녹음 시작 시간 저장
                 if let Some(audio_ctx) = &self.audio_ctx {
@@ -902,6 +892,16 @@ impl Component for PitchAnalyzer {
                 // 게이지 바 초기화를 위해 UI 업데이트
                 self.update_playback_time_ui(0.0);
                 
+                // PitchPlot의 재생 위치 초기화를 위한 이벤트 발행
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        // playbackReset 이벤트 발행: pitch plot의 playback 선을 0초로 초기화
+                        let event = web_sys::Event::new("playbackReset").unwrap();
+                        let _ = document.dispatch_event(&event);
+                        web_sys::console::log_1(&"녹음 시작: playbackReset 이벤트 발행".into());
+                    }
+                }
+                
                 web_sys::console::log_1(&"녹음 시작: 시간 초기화됨".into());
 
                 true
@@ -913,88 +913,130 @@ impl Component for PitchAnalyzer {
                     return false;
                 }
                 
+                web_sys::console::log_1(&"⏹️ 녹음 중지 버튼 누름 - pitchplot 업데이트 중단 & 데이터 처리 시작".into());
+                
+                // 녹음 종료 상태로 변경하되 청크 처리는 아직 진행 중
                 self.is_recording = false;
                 
-                // MediaRecorder 정리
-                if let Some(recorder) = &self.recorder {
-                    // 데이터 이벤트 핸들러 제거
-                    recorder.set_ondataavailable(None);
-                    recorder.set_onstop(None);
-                    
-                    // 레코더가 아직 녹음 중이면 중지
-                    if recorder.state() == web_sys::RecordingState::Recording {
-                        let _ = recorder.stop(); // 에러는 무시
-                    }
-                    
-                    web_sys::console::log_1(&"Recording stopped and recorder event listeners removed".into());
-                }
+                // 화면 고정 활성화 - 녹음 중지 시
+                self.is_frozen = true;
                 
-                // 모든 관련 상태 초기화
-                self.recorder = None;
+                // pitch 분석 인터벌 중지
+                self.analysis_interval = None;
+                web_sys::console::log_1(&"피치 분석 인터벌 중지됨".into());
                 
-                // 마지막 녹음 시간 저장 (현재 경과 시간)
+                // 히스토리에 마지막 시간 기록 - 이후 업데이트 중단
                 let current_recording_time = self.elapsed_time;
-                
-                // 값 검증: 비정상적으로 큰 값이나 음수 값은 사용하지 않음
-                if current_recording_time > 0.0 && current_recording_time < 3600.0 {
-                    self.last_recording_time = current_recording_time;
-                    web_sys::console::log_1(&format!("녹음 종료: 현재 추정 녹음 시간 = {:.2}초", self.last_recording_time).into());
+                self.last_recording_time = if current_recording_time > 0.0 && current_recording_time < 3600.0 {
+                    current_recording_time
+                } else if let Some((last_time, _)) = self.history.back() {
+                    *last_time
                 } else {
-                    // 비정상 값인 경우 기본값 설정
-                    web_sys::console::error_1(&format!("비정상 녹음 시간 감지됨: {:.2}초, 기본값 사용", current_recording_time).into());
-                    // 히스토리의 마지막 시간으로 대체 시도
-                    if let Some((last_time, _)) = self.history.back() {
-                        self.last_recording_time = *last_time;
-                    } else {
-                        // 히스토리도 없으면 안전한 값으로 설정
-                        self.last_recording_time = 1.0;
+                    1.0 // 안전 기본값
+                };
+                
+                // UI 알림용 "녹음 종료됨" 상태 이벤트 발행
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        let event = CustomEvent::new_with_event_init_dict(
+                            "recordingStateChange",
+                            CustomEventInit::new()
+                                .bubbles(true)
+                                .detail(&JsValue::from_bool(false)),
+                        ).unwrap_or_else(|_| web_sys::CustomEvent::new("recordingStateChange").unwrap());
+                        
+                        let _ = document.dispatch_event(&event);
                     }
                 }
                 
-                // 게이지바 상태 업데이트 (게이지는 0으로 초기화하되, 전체 시간 표시는 녹음 시간으로)
-                self.playback_time = 0.0;
-                self.update_playback_time_ui(0.0);
-                
-                // 녹음된 청크를 결합하여 URL 생성 - Blob 처리 로직 추가
-                if !self.recorded_chunks.is_empty() {
-                    let blobs = js_sys::Array::new();
-                    for blob in &self.recorded_chunks {
-                        blobs.push(blob);
-                    }
-                    
-                    // Blob 배열을 하나의 Blob으로 합치기
-                    let mut blob_options = web_sys::BlobPropertyBag::new();
-                    blob_options.type_("audio/webm");
-                    
-                    if let Ok(combined_blob) = web_sys::Blob::new_with_blob_sequence_and_options(&blobs, &blob_options) {
-                        // Blob 크기 확인
-                        let blob_size = combined_blob.size();
-                        web_sys::console::log_1(&format!("생성된 Blob 크기: {:.2} KB", blob_size / 1024.0).into());
+                // MediaRecorder가 있는 경우에만 처리
+                if let Some(recorder) = &self.recorder {
+                    // 현재 상태가 녹음 중인 경우에만 중지 요청
+                    if recorder.state() == web_sys::RecordingState::Recording {
+                        // ondataavailable과 onstop 이벤트 핸들러는 아직 유지
+                        // (데이터 수집을 위해 필요함)
                         
-                        // Blob URL 생성
-                        let url = web_sys::Url::create_object_url_with_blob(&combined_blob)
-                            .expect("Failed to create object URL");
+                        // 게이지바 상태 업데이트 (게이지는 0으로 초기화하되, 전체 시간 표시는 녹음 시간으로)
+                        self.playback_time = 0.0;
+                        self.update_playback_time_ui(0.0);
                         
-                        // RecordingComplete 메시지 전송
-                        ctx.link().send_message(Msg::RecordingComplete(url));
+                        // 녹음 중지를 비동기로 처리하고 모든 데이터가 수집될 때까지 기다림
+                        let link = ctx.link().clone();
+                        let recorder_clone = recorder.clone();
+                        
+                        web_sys::console::log_1(&"녹음 중지 요청 - 모든 데이터 청크가 수집될 때까지 기다립니다...".into());
+                        
+                        // 비동기 처리를 위한 Promise 생성
+                        let promise = js_sys::Promise::new(&mut move |resolve, _reject| {
+                            let recorder_js = recorder_clone.clone();
+                            
+                            // onstop 이벤트 핸들러 설정 - 모든 데이터가 수집됐을 때 호출됨
+                            let onstop_closure = Closure::once(move |_event: web_sys::Event| {
+                                web_sys::console::log_1(&"레코더 onstop 이벤트: 모든 데이터 수집 완료".into());
+                                // Promise 해결
+                                let _ = resolve.call0(&JsValue::NULL);
+                            });
+                            
+                            // 이벤트 핸들러 설정
+                            recorder_js.set_onstop(Some(onstop_closure.as_ref().unchecked_ref()));
+                            
+                            // 녹음 중지 요청
+                            if let Err(err) = recorder_js.stop() {
+                                web_sys::console::error_1(&format!("녹음 중지 오류: {:?}", err).into());
+                            }
+                            
+                            // 메모리 릭 방지
+                            onstop_closure.forget();
+                        });
+                        
+                        // Promise 처리를 위한 Future 변환 및 실행
+                        wasm_bindgen_futures::spawn_local(async move {
+                            match JsFuture::from(promise).await {
+                                Ok(_) => {
+                                    web_sys::console::log_1(&"모든 녹음 데이터 수집 완료 - 후처리 시작".into());
+                                    // 모든 데이터가 수집되었으므로 레코더 리소스 정리 메시지 전송
+                                    link.send_message(Msg::RecordingComplete(String::new()));
+                                },
+                                Err(err) => {
+                                    web_sys::console::error_1(&format!("녹음 데이터 수집 중 오류 발생: {:?}", err).into());
+                                    // 오류 발생 시에도 RecordingComplete 메시지 전송하여 정리
+                                    link.send_message(Msg::RecordingComplete(String::new()));
+                                }
+                            }
+                        });
                     } else {
-                        web_sys::console::error_1(&"Failed to combine recorded chunks".into());
+                        // 이미 중지된 상태라면 바로 RecordingComplete 호출
+                        ctx.link().send_message(Msg::RecordingComplete(String::new()));
                     }
                 } else {
-                    web_sys::console::log_1(&"No recorded chunks to process".into());
+                    // 레코더가 없는 경우에도 RecordingComplete 호출
+                    ctx.link().send_message(Msg::RecordingComplete(String::new()));
                 }
                 
                 true
             },
 
             Msg::RecordingDataAvailable(blob) => {
-                // 녹음 중일 때만 데이터 추가
-                if self.is_recording && blob.size() > 0.0 {
-                    self.recorded_chunks.push(blob);
-                    info!("blob: {:?}", self.recorded_chunks.len());
+                // 블롭 크기가 0보다 크면 처리
+                if blob.size() > 0.0 {
+                    self.recorded_chunks.push(blob.clone());
+                    
+                    // 로그 - 데이터 청크 수신
+                    let chunk_size = blob.size();
+                    let chunks_count = self.recorded_chunks.len();
+                    
+                    if self.is_recording {
+                        // 녹음 중 - 정상적인 데이터 수집
+                        web_sys::console::log_1(&format!("🎙️ 오디오 데이터 청크 수신 (녹음 중) - 크기: {:.2} KB, 총 청크: {}", 
+                            chunk_size / 1024.0, chunks_count).into());
+                    } else {
+                        // 녹음 중지 후 - 나머지 데이터 수집 중
+                        web_sys::console::log_1(&format!("🎙️ 오디오 데이터 청크 수신 (녹음 종료 후 정리 중) - 크기: {:.2} KB, 총 청크: {}", 
+                            chunk_size / 1024.0, chunks_count).into());
+                    }
                 } else {
-                    // 녹음 중이 아니면 데이터 무시
-                    web_sys::console::log_1(&"Ignoring data chunk - not recording".into());
+                    // 빈 청크는 무시하지만 로그는 남김
+                    web_sys::console::log_1(&"빈 오디오 데이터 청크 수신됨 (무시됨)".into());
                 }
                 true
             },
@@ -1002,7 +1044,6 @@ impl Component for PitchAnalyzer {
             Msg::RecordingComplete(url) => {
                 // 녹음 완료
                 self.is_recording = false;
-                self.recorded_audio_url = Some(url.clone());
                 
                 // 기존 오디오 요소가 있으면 이벤트 리스너 제거 및 리소스 정리
                 if let Some(old_audio) = &self.audio_element {
@@ -1016,6 +1057,72 @@ impl Component for PitchAnalyzer {
                     }
                 }
                 
+                // url 파라미터가 비어있는 경우, 직접 녹음된 청크로 URL 생성 (StopRecording에서 전달됨)
+                let audio_url = if url.is_empty() {
+                    // 데이터 이벤트 핸들러 제거
+                    if let Some(recorder) = &self.recorder {
+                        // 이벤트 핸들러 제거 및 정리
+                        recorder.set_ondataavailable(None);
+                        recorder.set_onstop(None);
+                        
+                        web_sys::console::log_1(&"레코더 정리 완료".into());
+                    }
+                    
+                    // 모든 관련 상태 초기화
+                    self.recorder = None;
+                    
+                    // 녹음된 청크를 결합하여 URL 생성
+                    if !self.recorded_chunks.is_empty() {
+                        let blobs = js_sys::Array::new();
+                        for blob in &self.recorded_chunks {
+                            blobs.push(blob);
+                        }
+                        
+                        // 녹음된 청크 수 및 크기 기록
+                        let total_chunks = self.recorded_chunks.len();
+                        let mut total_size = 0.0;
+                        for blob in &self.recorded_chunks {
+                            total_size += blob.size();
+                        }
+                        web_sys::console::log_1(&format!("처리 중인 녹음 청크: {}개, 총 크기: {:.2} KB", 
+                            total_chunks, total_size / 1024.0).into());
+                        
+                        // Blob 배열을 하나의 Blob으로 합치기
+                        let mut blob_options = web_sys::BlobPropertyBag::new();
+                        blob_options.type_("audio/webm");
+                        
+                        match web_sys::Blob::new_with_blob_sequence_and_options(&blobs, &blob_options) {
+                            Ok(combined_blob) => {
+                                // Blob 크기 확인
+                                let blob_size = combined_blob.size();
+                                web_sys::console::log_1(&format!("생성된 Blob 크기: {:.2} KB", blob_size / 1024.0).into());
+                                
+                                // Blob URL 생성
+                                match web_sys::Url::create_object_url_with_blob(&combined_blob) {
+                                    Ok(new_url) => new_url,
+                                    Err(err) => {
+                                        web_sys::console::error_1(&format!("URL 생성 실패: {:?}", err).into());
+                                        return false;
+                                    }
+                                }
+                            },
+                            Err(err) => {
+                                web_sys::console::error_1(&format!("Blob 결합 실패: {:?}", err).into());
+                                return false;
+                            }
+                        }
+                    } else {
+                        web_sys::console::error_1(&"처리할 녹음 청크가 없습니다".into());
+                        return false;
+                    }
+                } else {
+                    // 이미 생성된 URL이 전달된 경우 그대로 사용
+                    url
+                };
+                
+                // 새 URL 저장
+                self.recorded_audio_url = Some(audio_url.clone());
+                
                 // 오디오 요소 생성
                 if let Some(window) = web_sys::window() {
                     if let Some(document) = window.document() {
@@ -1024,7 +1131,7 @@ impl Component for PitchAnalyzer {
                                 .dyn_into()
                                 .expect("Failed to create audio element");
                             
-                            audio_element.set_src(&url);
+                            audio_element.set_src(&audio_url);
                             audio_element.set_controls(false);
                             
                             // 재생 종료 이벤트 리스너 추가
@@ -1064,6 +1171,21 @@ impl Component for PitchAnalyzer {
                     }
                 }
                 
+                // 녹음 완료 이벤트 발행
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        let event = CustomEvent::new_with_event_init_dict(
+                            "recordingComplete",
+                            CustomEventInit::new()
+                                .bubbles(true)
+                                .detail(&JsValue::from_str(&audio_url)),
+                        ).unwrap_or_else(|_| web_sys::CustomEvent::new("recordingComplete").unwrap());
+                        
+                        let _ = document.dispatch_event(&event);
+                        web_sys::console::log_1(&"recordingComplete 이벤트 발행".into());
+                    }
+                }
+                
                 true
             },
 
@@ -1082,6 +1204,9 @@ impl Component for PitchAnalyzer {
                     web_sys::console::log_1(&"녹음 중에는 재생할 수 없습니다".into());
                     return false;
                 }
+                
+                // 화면 고정 해제 - 재생 중에는 화면이 업데이트되어야 함
+                self.is_frozen = false;
                 
                 // 이미 재생 중인 경우 중복 호출 방지
                 if self.is_playing {
@@ -1577,7 +1702,42 @@ impl Component for PitchAnalyzer {
                     }
                 }
                 true
-            }
+            },
+
+            // 새 메시지 추가: 오디오 리소스 정리
+            Msg::StopAudioResources => {
+                // 오디오 컨텍스트가 있으면 정지
+                if let Some(ctx) = &self.audio_ctx {
+                    let _ = ctx.close();
+                }
+
+                // 스트림 트랙 정지
+                if let Some(stream) = &self._stream {
+                    let tracks = stream.get_audio_tracks();
+                    for i in 0..tracks.length() {
+                        let track_js = tracks.get(i);
+                        let track = web_sys::MediaStreamTrack::from(track_js);
+                        track.stop();
+                    }
+                }
+
+                // 상태 초기화
+                self.audio_ctx = None;
+                self.analyser = None;
+                self._stream = None;
+                self.mic_active = false;
+                self.pitch = "🎤 음성 입력 대기...".to_string();
+                self.prev_freqs.clear();
+                self.current_freq = 0.0;
+
+                // 인터벌 정리
+                self.playback_interval = None;
+                self.analysis_interval = None;
+
+                web_sys::console::log_1(&"오디오 리소스 및 모든 인터벌 중지됨".into());
+
+                true
+            },
         }
     }
 
@@ -1616,6 +1776,7 @@ impl Component for PitchAnalyzer {
         };
         let is_playing = self.is_playing;
         let is_recording = self.is_recording;
+        let is_frozen = self.is_frozen;
 
         // 피치 플롯 컴포넌트
         let pitch_plot = html! {
@@ -1625,6 +1786,7 @@ impl Component for PitchAnalyzer {
                 playback_time={playback_time}
                 is_playing={is_playing}
                 is_recording={is_recording}
+                is_frozen={is_frozen}
             />
         };
 

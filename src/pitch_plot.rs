@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, MouseEvent};
 use yew::prelude::*;
+use gloo::events::EventListener;
 
 #[derive(Properties, PartialEq)]
 pub struct PitchPlotProps {
@@ -17,6 +18,7 @@ pub struct PitchPlotProps {
     pub playback_time: Option<f64>, // 재생 시간 (재생 중일 때만 Some 값)
     pub is_playing: bool, // 재생 중인지 여부
     pub is_recording: bool, // 녹음 중인지 여부 추가
+    pub is_frozen: bool, // 녹음 종료 후 화면 고정 여부
 }
 
 #[function_component(PitchPlot)]
@@ -44,6 +46,82 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
     // 고정 시간 범위를 위한 상태 추가
     let fixed_time_range = use_state(|| None::<(f64, f64)>); // 고정된 시간 범위 (시작, 끝)
+    
+    // 녹음 종료 시 화면 상태를 저장하기 위한 상태 추가
+    let frozen_history = use_state(|| None::<VecDeque<(f64, Vec<(f64, f32)>)>>); // 고정된 히스토리
+    let frozen_current_freq = use_state(|| 0.0); // 고정된 현재 주파수
+    let frozen_time = use_state(|| None::<f64>); // 고정된 시간
+    
+    // 화면 고정 상태 감지 및 저장
+    {
+        let frozen_history = frozen_history.clone();
+        let frozen_current_freq = frozen_current_freq.clone();
+        let frozen_time = frozen_time.clone();
+        let history = props.history.clone();
+        let current_freq = props.current_freq;
+        let last_playback_time = last_playback_time.clone();
+        
+        use_effect_with(
+            (props.is_frozen, props.is_recording, props.is_playing),
+            move |(is_frozen, is_recording, is_playing)| {
+                // 녹음이 중지되고 화면이 고정되어야 할 때
+                if *is_frozen && !*is_recording && !*is_playing {
+                    if frozen_history.is_none() {
+                        // 현재 상태를 고정된 상태로 저장
+                        frozen_history.set(Some(history.clone()));
+                        frozen_current_freq.set(current_freq);
+                        
+                        // 현재 시간 (녹음 중지 시점)을 고정
+                        if let Some(time) = *last_playback_time {
+                            frozen_time.set(Some(time));
+                        } else {
+                            // last_playback_time이 없으면 히스토리의 마지막 시간 사용
+                            let last_time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+                            frozen_time.set(Some(last_time));
+                        }
+                        
+                        web_sys::console::log_1(&"[PitchPlot] 화면 상태 고정됨".into());
+                    }
+                } else if !*is_frozen || *is_recording || *is_playing {
+                    // 고정 상태가 해제되면 저장된 고정 상태도 초기화
+                    if frozen_history.is_some() {
+                        frozen_history.set(None);
+                        frozen_current_freq.set(0.0);
+                        frozen_time.set(None);
+                        web_sys::console::log_1(&"[PitchPlot] 화면 상태 고정 해제됨".into());
+                    }
+                }
+                
+                || ()
+            },
+        );
+    }
+
+    // playbackReset 이벤트 리스너 추가
+    {
+        let last_playback_time = last_playback_time.clone();
+        
+        use_effect_with(
+            (),  // 의존성 없음 (컴포넌트 마운트시 한 번만 실행)
+            move |_| {
+                // playbackReset 이벤트 핸들러 생성
+                let handler = move |e: &web_sys::Event| {
+                    // playback 선 초기화 (0초로)
+                    last_playback_time.set(Some(0.0));
+                    web_sys::console::log_1(&"[PitchPlot] playbackReset 이벤트 수신: 재생 위치를 0초로 초기화".into());
+                };
+                
+                // 이벤트 핸들러 등록
+                let document = web_sys::window().unwrap().document().unwrap();
+                let listener = EventListener::new(&document, "playbackReset", handler);
+                
+                // cleanup 함수 반환
+                move || {
+                    drop(listener); // 이벤트 리스너 제거
+                }
+            },
+        );
+    }
 
     // 마우스 이벤트 핸들러
     let on_mouse_down = {
@@ -187,8 +265,22 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
     {
         let canvas_ref = canvas_ref.clone();
-        let history = props.history.clone();
-        let current_freq = props.current_freq;
+        let history = if props.is_frozen && frozen_history.is_some() {
+            // 고정 상태일 때는 저장된 히스토리 사용
+            frozen_history.as_ref().unwrap().clone()
+        } else {
+            // 일반 상태에서는 props의 히스토리 사용
+            props.history.clone()
+        };
+        
+        let current_freq = if props.is_frozen && *frozen_current_freq > 0.0 {
+            // 고정 상태일 때는 저장된 주파수 사용
+            *frozen_current_freq
+        } else {
+            // 일반 상태에서는 props의 현재 주파수 사용
+            props.current_freq
+        };
+        
         let last_center_midi_handle = last_center_midi.clone();
         let last_center_freq_handle = last_center_freq.clone();
         let freq_ratio = freq_ratio.clone();
@@ -198,9 +290,18 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let transition_start_time = transition_start_time.clone();
         let transition_duration = transition_duration.clone();
         let is_transitioning = is_transitioning.clone();
-        let playback_time = props.playback_time;
+        
+        // 현재 또는 고정된 재생 시간
+        let playback_time = if props.is_frozen && frozen_time.is_some() {
+            // 고정 상태일 때는 저장된 시간 사용
+            *frozen_time
+        } else {
+            // 일반 상태에서는 props의 재생 시간 사용
+            props.playback_time
+        };
+        
         let is_playing = props.is_playing;
-        let is_recording = props.is_recording; // 추가: 녹음 중인지 여부
+        let is_recording = props.is_recording;
         let last_playback_time = last_playback_time.clone();
 
         use_effect_with(
@@ -214,6 +315,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 playback_time,
                 is_playing,
                 is_recording, // 상태 변경 감지 위해 추가
+                props.is_frozen, // 화면 고정 상태 감지
             ),
             move |_| {
                 // 현재 시간 얻기 (초 단위)
