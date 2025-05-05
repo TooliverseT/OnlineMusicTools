@@ -16,6 +16,7 @@ pub struct PitchPlotProps {
     pub history: VecDeque<(f64, Vec<(f64, f32)>)>, // (timestamp, [(frequency, amplitude)])
     pub playback_time: Option<f64>, // 재생 시간 (재생 중일 때만 Some 값)
     pub is_playing: bool, // 재생 중인지 여부
+    pub is_recording: bool, // 녹음 중인지 여부 추가
 }
 
 #[function_component(PitchPlot)]
@@ -199,6 +200,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let is_transitioning = is_transitioning.clone();
         let playback_time = props.playback_time;
         let is_playing = props.is_playing;
+        let is_recording = props.is_recording; // 추가: 녹음 중인지 여부
         let last_playback_time = last_playback_time.clone();
 
         use_effect_with(
@@ -211,6 +213,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 *is_transitioning,
                 playback_time,
                 is_playing,
+                is_recording, // 상태 변경 감지 위해 추가
             ),
             move |_| {
                 // 현재 시간 얻기 (초 단위)
@@ -218,7 +221,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                 // 재생 시간 업데이트 - 재생 중이면 현재 시간으로, 일시 정지 상태면 마지막 재생 시간 유지
                 if let Some(time) = playback_time {
+                    // 재생 시간 또는 시크 시간이 있으면 항상 업데이트 (재생 중이든 정지 상태든)
                     last_playback_time.set(Some(time));
+                    web_sys::console::log_1(&format!("[PitchPlot] 재생/시크 시간 업데이트: {:.2}s", time).into());
                 } else if is_playing {
                     // 재생 중인데 시간이 없는 경우는 0으로 초기화 (예외 처리)
                     last_playback_time.set(Some(0.0));
@@ -557,8 +562,13 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     }
 
                     // 현재 시간에 대한 세로선 그리기
-                    // 현재 시간 (일시 정지 상태면 마지막 재생 시간, 재생 중이면 현재 재생 시간, 그 외에는 히스토리의 마지막 시간)
-                    let current_time = if is_playing {
+                    // 현재 시간 (녹음 중이면 녹음 시간, 일시 정지 상태면 마지막 재생 시간, 재생 중이면 현재 재생 시간, 그 외에는 히스토리의 마지막 시간)
+                    let current_time = if is_recording {
+                        // 녹음 중이면 히스토리의 마지막 시간 사용
+                        let time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+                        web_sys::console::log_1(&format!("[PitchPlot] Recording time: {:.2}s", time).into());
+                        time
+                    } else if is_playing {
                         // 재생 중이면 현재 playback_time 사용
                         let time = playback_time.unwrap_or_else(|| history.back().map(|(t, _)| *t).unwrap_or(0.0));
                         web_sys::console::log_1(&format!("[PitchPlot] Playback time: {:.2}s, is_playing: {}", time, is_playing).into());
@@ -577,12 +587,12 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     // 현재 시간이 표시 범위 내에 있는 경우에만 세로선 표시
                     if current_time >= x_min && current_time <= x_max {
                         // 현재 시간 세로선 스타일 설정
-                        let line_color = if is_playing {
-                            // 재생 중일 때는 주황색 라인
+                        let line_color = if is_recording {
+                            // 녹음 중일 때는 빨간색 라인
+                            RGBColor(255, 80, 80) // Red
+                        } else if is_playing || last_playback_time.is_some() {
+                            // 재생 중이거나 일시 정지 상태일 때는 주황색 라인
                             RGBColor(255, 165, 0) // Orange
-                        } else if last_playback_time.is_some() {
-                            // 일시 정지 상태일 때는 빨간색 라인
-                            RGBColor(255, 100, 100) // Red
                         } else {
                             // 분석 중일 때는 민트색 라인
                             RGBColor(158, 245, 207) // #9EF5CF
@@ -652,8 +662,22 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         }
                     }
 
-                    // 현재 모드 표시 (드래그 모드 또는 자동 모드 또는 재생/일시정지 모드)
-                    if is_playing {
+                    // 현재 모드 표시 (녹음 모드, 드래그 모드, 자동 모드, 재생/일시정지 모드)
+                    if is_recording {
+                        let style = TextStyle::from(("Lexend", 15).into_font())
+                            .color(&RGBColor(255, 80, 80)); // Red
+                        
+                        let recording_time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+                        let mode_text = format!("Recording... {:.1}s", recording_time);
+                        
+                        chart
+                            .draw_series(std::iter::once(Text::new(
+                                mode_text,
+                                (x_min + 0.5, max_log - 0.05),
+                                &style,
+                            )))
+                            .unwrap();
+                    } else if is_playing {
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(255, 165, 0)); // Orange
                         
@@ -676,8 +700,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         // 로그 출력
                         web_sys::console::log_1(&format!("차트 모드: 재생 - 시간: {:.2}s, 주파수: {:.2}Hz", 
                             playback_time.unwrap_or(0.0), current_freq).into());
-                    } else if last_playback_time.is_some() {
-                        // 일시 정지 모드 텍스트 표시
+                    } else if last_playback_time.is_some() && !is_recording {
+                        // 녹음 중이 아니고 일시 정지 모드일 때만 텍스트 표시
                         let style = TextStyle::from(("Lexend", 15).into_font())
                             .color(&RGBColor(255, 100, 100)); // Red
                         

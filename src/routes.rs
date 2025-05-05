@@ -630,12 +630,13 @@ pub fn pitch_controls() -> Html {
 
     // 재생 시간 업데이트 이벤트 리스너 추가
     {
-        let current_time_clone = current_time.clone();
-        let duration_clone = duration.clone();
-        let progress_clone = progress.clone();
-        let is_seeking_clone = is_seeking.clone();
-        let is_playing_clone = is_playing.clone();
-        let has_recorded_clone = has_recorded.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        let progress = progress.clone();
+        let is_seeking = is_seeking.clone();
+        let is_playing = is_playing.clone();
+        let has_recorded = has_recorded.clone();
+        let mic_active = mic_active.clone();
         
         use_effect(move || {
             let window = web_sys::window().expect("window를 찾을 수 없습니다");
@@ -647,21 +648,48 @@ pub fn pitch_controls() -> Html {
                 let detail = e.detail();
                 let data = js_sys::Object::from(detail);
                 
-                // currentTime과 duration 값 추출
-                if let Ok(current) = js_sys::Reflect::get(&data, &JsValue::from_str("currentTime")) {
-                    if let Some(time) = current.as_f64() {
-                        current_time_clone.set(time);
+                // 녹음 상태 확인 (녹음 중인지 여부)
+                let is_recording = if let Ok(is_rec) = js_sys::Reflect::get(&data, &JsValue::from_str("isRecording")) {
+                    if let Some(rec_state) = is_rec.as_bool() {
+                        rec_state
+                    } else {
+                        false
                     }
-                }
+                } else {
+                    false
+                };
                 
-                if let Ok(total) = js_sys::Reflect::get(&data, &JsValue::from_str("duration")) {
-                    if let Some(d) = total.as_f64() {
-                        duration_clone.set(d);
-                        
-                        // 시크 중이 아닐 때만 진행률 계산 및 업데이트
-                        if !*is_seeking_clone && d > 0.0 {
-                            let prog = *current_time_clone / d;
-                            progress_clone.set(prog);
+                if is_recording {
+                    // 녹음 중일 때는 진행률을 0으로 고정하고, 현재 시간을 0으로 고정
+                    progress.set(0.0);
+                    current_time.set(0.0);
+                    
+                    // 녹음 중에는 마이크가 활성화되어 있어야 함
+                    mic_active.set(true);
+                    
+                    // 전체 녹음 시간만 업데이트
+                    if let Ok(total) = js_sys::Reflect::get(&data, &JsValue::from_str("duration")) {
+                        if let Some(d) = total.as_f64() {
+                            duration.set(d);
+                        }
+                    }
+                } else {
+                    // 일반 재생 모드에서는 정상적으로 시간 정보 업데이트
+                    if let Ok(current) = js_sys::Reflect::get(&data, &JsValue::from_str("currentTime")) {
+                        if let Some(time) = current.as_f64() {
+                            current_time.set(time);
+                        }
+                    }
+                    
+                    if let Ok(total) = js_sys::Reflect::get(&data, &JsValue::from_str("duration")) {
+                        if let Some(d) = total.as_f64() {
+                            duration.set(d);
+                            
+                            // 시크 중이 아닐 때만 진행률 계산 및 업데이트
+                            if !*is_seeking && d > 0.0 {
+                                let prog = *current_time / d;
+                                progress.set(prog);
+                            }
                         }
                     }
                 }
@@ -677,11 +705,11 @@ pub fn pitch_controls() -> Html {
                 let detail = e.detail();
                 
                 if let Some(state) = detail.as_bool() {
-                    is_playing_clone.set(state);
+                    is_playing.set(state);
                     
                     if state {
                         // 재생이 시작되면 has_recorded를 true로 설정
-                        has_recorded_clone.set(true);
+                        has_recorded.set(true);
                     }
                 }
             }) as Box<dyn FnMut(_)>);

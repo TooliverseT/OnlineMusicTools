@@ -20,6 +20,7 @@ An interactive music visualization and training tool to help you master your mus
 ### 피치 플롯
 
 * x축 라벨 위치 조정
+* 드래그시 차트 영역을 벗어나도 마우스업을 하지 않으면 계속 이동되도록
 
 ### 음파 생성기
 
