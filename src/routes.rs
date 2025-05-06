@@ -108,7 +108,7 @@ pub fn pitch_controls() -> Html {
     let mic_active = use_state(|| false);
     let monitor_active = use_state(|| false);
     let is_playing = use_state(|| false);
-    let has_recorded = use_state(|| false);
+    let has_recorded = use_state(|| true);
     let speaker_gain = use_state(|| 0.02f32);
     
     // 재생 정보 상태 추가
