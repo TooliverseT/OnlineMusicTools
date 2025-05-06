@@ -10,7 +10,6 @@ An interactive music visualization and training tool to help you master your mus
 
 ### 제어반
 
-* 녹음 파일 다운로드
 * 스피커, 마이크 선택
 
 ### 피치 플롯

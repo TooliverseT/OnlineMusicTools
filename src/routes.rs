@@ -848,6 +848,22 @@ pub fn pitch_controls() -> Html {
         })
     };
 
+    // 다운로드 버튼 콜백 추가
+    let download_recording = {
+        Callback::from(move |_| {
+            // 다운로드 이벤트 발생
+            let event = web_sys::Event::new("downloadRecording").unwrap();
+            web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .dispatch_event(&event)
+                .unwrap();
+            
+            web_sys::console::log_1(&"다운로드 이벤트 발행됨".into());
+        })
+    };
+
     html! {
         <div class="pitch-controls navbar-item">
             <div class="navbar-controls-buttons">
@@ -875,6 +891,16 @@ pub fn pitch_controls() -> Html {
                     disabled={*mic_active || !*has_recorded}
                 >
                     { if *is_playing { "⏸️" } else { "▶️" } }
+                </button>
+                
+                // 다운로드 버튼 추가
+                <button
+                    class="icon-button download-button"
+                    onclick={download_recording}
+                    title="녹음 파일 다운로드"
+                    disabled={*mic_active || !*has_recorded}
+                >
+                    { "💾" }
                 </button>
                 
                 // 재생 게이지 바 추가

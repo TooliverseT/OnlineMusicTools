@@ -11,6 +11,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     AnalyserNode, AudioContext, HtmlCanvasElement, MediaDevices, MediaStream,
     MediaStreamAudioSourceNode, MediaStreamConstraints, Navigator, CustomEvent, CustomEventInit,
+    HtmlAnchorElement,
 };
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -235,6 +236,9 @@ pub struct PitchAnalyzer {
     
     // 최대 녹음 시간 타이머 추가
     max_recording_timer: Option<gloo::timers::callback::Timeout>,
+    
+    // 녹음 생성 시간 (파일명 생성용)
+    created_at_time: f64,
 }
 
 // PitchAnalyzer 일반 메서드 구현
@@ -301,6 +305,7 @@ pub enum Msg {
     StopRecording,           // 녹음 중지
     RecordingDataAvailable(web_sys::Blob), // 녹음 데이터 가용
     RecordingComplete(String), // 녹음 완료 (오디오 URL)
+    DownloadRecording,       // 녹음 파일 다운로드
     
     // 재생 관련 메시지
     TogglePlayback,          // 재생/일시정지 토글
@@ -424,7 +429,18 @@ impl Component for PitchAnalyzer {
             seek_callback.emit(e.clone());
         });
         
+        // 다운로드 이벤트 리스너 추가
+        let download_link = ctx.link().clone();
+        let download_callback = Callback::from(move |_: web_sys::Event| {
+            download_link.send_message(Msg::DownloadRecording);
+        });
+        
+        let download_listener = EventListener::new(&document, "downloadRecording", move |e| {
+            download_callback.emit(e.clone());
+        });
+        
         // 모든 이벤트 리스너 forget 호출
+        download_listener.forget();
         seek_listener.forget();
         playback_listener.forget();
         toggle_audio_listener.forget();
@@ -471,6 +487,9 @@ impl Component for PitchAnalyzer {
             
             // 최대 녹음 시간 타이머 추가
             max_recording_timer: None,
+            
+            // 녹음 생성 시간 초기화 (현재 시간으로)
+            created_at_time: js_sys::Date::new_0().get_time(),
         }
     }
 
@@ -897,6 +916,9 @@ impl Component for PitchAnalyzer {
                 self.audio_element = None;
                 self.playback_time = 0.0;
                 self.last_recording_time = 0.0;
+                
+                // 녹음 시작 시간 갱신
+                self.created_at_time = js_sys::Date::new_0().get_time();
                 
                 // 화면 고정 해제 - 새로운 녹음 시작 시
                 self.is_frozen = false;
@@ -1807,6 +1829,63 @@ impl Component for PitchAnalyzer {
                 web_sys::console::log_1(&"오디오 리소스 및 모든 인터벌 중지됨".into());
 
                 true
+            },
+
+            Msg::DownloadRecording => {
+                // 녹음된 오디오가 없으면 다운로드 불가
+                if !self.has_recorded_audio() {
+                    web_sys::console::log_1(&"다운로드할 녹음된 오디오가 없습니다".into());
+                    return false;
+                }
+                
+                // 오디오 URL로부터 다운로드 진행
+                if let Some(audio_url) = &self.recorded_audio_url {
+                    // 파일명 생성 (녹음 생성 시간 기반으로 한국어 형식 포맷)
+                    let date = js_sys::Date::new(&JsValue::from_f64(self.created_at_time));
+                    
+                    // 한국어 날짜 형식: YYYY-MM-DD_HH-MM-SS
+                    let year = date.get_full_year();
+                    let month = date.get_month() + 1; // 월은 0부터 시작하므로 +1
+                    let day = date.get_date();
+                    let hours = date.get_hours();
+                    let minutes = date.get_minutes();
+                    let seconds = date.get_seconds();
+                    
+                    let filename = format!(
+                        "recording_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.webm",
+                        year, month, day, hours, minutes, seconds
+                    );
+
+                    if let Some(window) = web_sys::window() {
+                        if let Some(document) = window.document() {
+                            if let Ok(element) = document.create_element("a") {
+                                let a_element: web_sys::HtmlAnchorElement = element
+                                    .dyn_into()
+                                    .expect("a 태그 생성 실패");
+                                
+                                // 오디오 URL 복제본 생성 (메타데이터 유지)
+                                a_element.set_href(audio_url);
+                                
+                                // 다운로드 속성 설정
+                                a_element.set_attribute("download", &filename).unwrap_or_else(|_| {
+                                    web_sys::console::error_1(&"download 속성 설정 실패".into());
+                                });
+                                
+                                // 다운로드 시작 (DOM에 추가하고 클릭 후 제거)
+                                document.body().unwrap().append_child(&a_element).unwrap();
+                                a_element.click();
+                                document.body().unwrap().remove_child(&a_element).unwrap();
+                                
+                                web_sys::console::log_1(&format!("오디오 다운로드 완료: {}", filename).into());
+                                
+                                return true;
+                            }
+                        }
+                    }
+                }
+                
+                web_sys::console::error_1(&"오디오 다운로드 실패".into());
+                false
             },
         }
     }
