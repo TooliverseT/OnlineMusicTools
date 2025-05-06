@@ -644,7 +644,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     let mut chart = ChartBuilder::on(&root)
                         .margin(10)
                         .set_label_area_size(LabelAreaPosition::Left, 60)
-                        .set_label_area_size(LabelAreaPosition::Bottom, 30)
+                        .set_label_area_size(LabelAreaPosition::Bottom, 40)
                         .build_cartesian_2d(x_min..x_max, min_log..max_log) // 로그 스케일 범위 사용
                         .unwrap();
 
