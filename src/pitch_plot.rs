@@ -55,6 +55,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
     let frozen_current_freq = use_state(|| 0.0); // 고정된 현재 주파수
     let frozen_time = use_state(|| None::<f64>); // 고정된 시간
     
+    // 차트 렌더링 코드 내에서 현재 표시 범위 저장
+    let current_x_range = use_state(|| None::<(f64, f64)>); // 현재 차트에 표시되는 x축 범위
+
     // 화면 고정 상태 감지 및 저장
     {
         let frozen_history = frozen_history.clone();
@@ -192,6 +195,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let last_playback_time = last_playback_time.clone();
         let is_recording = props.is_recording;
         let is_playing = props.is_playing;
+        let current_x_range = current_x_range.clone(); // 현재 차트 범위 추가
 
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
@@ -203,44 +207,54 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
             auto_follow.set(false);
             web_sys::console::log_1(&"[PitchPlot] 드래그 시작: 자동 따라가기 비활성화".into());
 
-            // 현재 보고 있는 시간 범위를 고정
-            let window_duration = 30.0;
-            let history_duration = history.back().map(|(t, _)| *t).unwrap_or(0.0);
-            
-            // 현재 시간을 기준으로 범위 설정 (녹음 중이면 녹음 시간, 재생 중이면 재생 시간, 그 외에는 히스토리 끝)
-            let current_time = if is_recording {
-                *current_recording_time
-            } else if is_playing || last_playback_time.is_some() {
-                last_playback_time.unwrap_or(0.0)
+            // 현재 차트에 표시되는 x축 범위 그대로 사용
+            if let Some((x_min, x_max)) = *current_x_range {
+                // 현재 보이는 범위를 그대로 고정
+                fixed_time_range.set(Some((x_min, x_max)));
+                
+                let window_size = x_max - x_min;
+                web_sys::console::log_1(&format!("[PitchPlot] 드래그 시작: 현재 차트 범위 그대로 고정: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
+                    x_min, x_max, window_size).into());
             } else {
-                history_duration
-            };
-            
-            // 현재 시간 주변으로 정확히 window_duration 크기의 창 설정
-            let half_window = window_duration / 2.0;
-            let proposed_min = (current_time - half_window).max(0.0); // 최소값 0으로 제한
-            let proposed_max = proposed_min + window_duration; // 정확히 window_duration 크기의 창 유지
-            
-            // x_max가 전체 길이를 넘으면 조정
-            let (adjusted_min, adjusted_max) = if proposed_max > history_duration {
-                if history_duration < window_duration {
-                    (0.0, window_duration)
+                // 현재 범위 정보가 없는 경우 (예외 처리)
+                let window_duration = 30.0;
+                let history_duration = history.back().map(|(t, _)| *t).unwrap_or(0.0);
+                
+                // 현재 시간을 기준으로 범위 설정
+                let current_time = if is_recording {
+                    *current_recording_time
+                } else if is_playing || last_playback_time.is_some() {
+                    last_playback_time.unwrap_or(0.0)
                 } else {
-                    let max_allowed = history_duration;
-                    let min_allowed = (max_allowed - window_duration).max(0.0); // 최소값 0으로 제한
-                    (min_allowed, max_allowed)
-                }
-            } else {
-                (proposed_min, proposed_max)
-            };
-
-            // 시간 범위 고정 (정확히 window_duration 크기 유지)
-            fixed_time_range.set(Some((adjusted_min, adjusted_max)));
-            
-            // 창 크기 확인
-            let window_size = adjusted_max - adjusted_min;
-            web_sys::console::log_1(&format!("[PitchPlot] 드래그 시작: 고정 시간 범위 설정: {:.2}s-{:.2}s, 창 크기: {:.2}s, 현재 시간: {:.2}s", 
-                adjusted_min, adjusted_max, window_size, current_time).into());
+                    history_duration
+                };
+                
+                // 현재 시간 주변으로 window_duration 크기의 창 설정
+                let half_window = window_duration / 2.0;
+                let proposed_min = (current_time - half_window).max(0.0); // 최소값 0으로 제한
+                let proposed_max = proposed_min + window_duration; // window_duration 크기의 창 유지
+                
+                // x_max가 전체 길이를 넘으면 조정
+                let (adjusted_min, adjusted_max) = if proposed_max > history_duration {
+                    if history_duration < window_duration {
+                        (0.0, window_duration)
+                    } else {
+                        let max_allowed = history_duration;
+                        let min_allowed = (max_allowed - window_duration).max(0.0); // 최소값 0으로 제한
+                        (min_allowed, max_allowed)
+                    }
+                } else {
+                    (proposed_min, proposed_max)
+                };
+                
+                // 시간 범위 고정 (window_duration 크기 유지)
+                fixed_time_range.set(Some((adjusted_min, adjusted_max)));
+                
+                // 창 크기 확인
+                let window_size = adjusted_max - adjusted_min;
+                web_sys::console::log_1(&format!("[PitchPlot] 드래그 시작: 범위 정보 없어 새로 계산: {:.2}s-{:.2}s, 창 크기: {:.2}s, 현재 시간: {:.2}s", 
+                    adjusted_min, adjusted_max, window_size, current_time).into());
+            }
         })
     };
 
@@ -268,16 +282,17 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
                 // X축 이동 (시간)
                 let dx = e.client_x() - *drag_start_x;
-                let window_duration = 30.0;
-                let time_per_pixel = window_duration / canvas_width as f64;
-                let dt = -dx as f64 * time_per_pixel;
-
-                // 현재 고정된 시간 범위가 있다면 그것을 기준으로 이동
+                
+                // 현재 고정된 시간 범위가 있는지 확인
                 if let Some((current_min, current_max)) = *fixed_time_range {
-                    let new_min = (current_min + dt).max(0.0); // 최소값을 0.0으로 제한
-                    let window_size = current_max - current_min;
-                    let new_max = new_min + window_size; // 창 크기 유지
+                    let window_duration = current_max - current_min; // 현재 창 크기
+                    let time_per_pixel = window_duration / canvas_width as f64;
+                    let dt = -dx as f64 * time_per_pixel;
 
+                    // 현재 고정된 범위에서 드래그 거리만큼 이동
+                    let new_min = (current_min + dt).max(0.0); // 최소값을 0.0으로 제한
+                    let new_max = new_min + window_duration; // 창 크기 유지
+                    
                     // 최대 히스토리 길이를 넘어서지 않도록 제한
                     let history_duration = history.back().map(|(t, _)| *t).unwrap_or(0.0);
                     
@@ -295,14 +310,15 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     if new_max > max_allowed {
                         // 오른쪽 경계 도달 - 최대 시간으로 제한
                         let adjusted_max = max_allowed;
-                        let adjusted_min = (adjusted_max - window_size).max(0.0); // 최소값은 0.0 이상으로 유지
+                        let adjusted_min = (adjusted_max - window_duration).max(0.0); // 최소값은 0.0 이상으로 유지
                         fixed_time_range.set(Some((adjusted_min, adjusted_max)));
-                        web_sys::console::log_1(&format!("[PitchPlot] 드래그 최대 범위 제한: {:.2}s-{:.2}s", adjusted_min, adjusted_max).into());
+                        web_sys::console::log_1(&format!("[PitchPlot] 드래그 최대 범위 제한: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
+                            adjusted_min, adjusted_max, window_duration).into());
                     } else {
                         // 정상 범위 내에서 이동
                         fixed_time_range.set(Some((new_min, new_max)));
-                        web_sys::console::log_1(&format!("[PitchPlot] 드래그 중: 새 시간 범위 {:.2}s-{:.2}s, dx={}, dt={:.3}s", 
-                            new_min, new_max, dx, dt).into());
+                        web_sys::console::log_1(&format!("[PitchPlot] 드래그 중: 새 시간 범위 {:.2}s-{:.2}s, 창 크기: {:.2}s, dx={}, dt={:.3}s", 
+                            new_min, new_max, window_duration, dx, dt).into());
                     }
                 }
 
@@ -416,6 +432,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
         let is_recording = props.is_recording;
         let last_playback_time = last_playback_time.clone();
         let current_recording_time = current_recording_time.clone();
+        let current_x_range = current_x_range.clone(); // 현재 x 범위 상태 추가
 
         use_effect_with(
             (
@@ -590,6 +607,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         }
                     };
 
+                    // 현재 x축 범위 저장 (드래그 시작 시 사용)
+                    current_x_range.set(Some((x_min, x_max)));
+                    
                     // 현재 중심 주파수 계산 (전환 중이면 보간된 값 사용)
                     let center_freq = if current_freq <= 0.0 {
                         // 주파수가 0이면 마지막 저장된 주파수 사용
