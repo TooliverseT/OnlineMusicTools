@@ -232,10 +232,16 @@ pub struct PitchAnalyzer {
     
     // 화면 고정 상태 추가
     is_frozen: bool,
+    
+    // 최대 녹음 시간 타이머 추가
+    max_recording_timer: Option<gloo::timers::callback::Timeout>,
 }
 
 // PitchAnalyzer 일반 메서드 구현
 impl PitchAnalyzer {
+    // 최대 녹음 시간 상수 (10분 = 600초)
+    const MAX_RECORDING_TIME: u32 = 600;
+    
     // 재생 시간 UI 업데이트 메서드
     fn update_playback_time_ui(&self, time: f64) {
         if let Some(window) = web_sys::window() {
@@ -462,6 +468,9 @@ impl Component for PitchAnalyzer {
             
             // 화면 고정 상태 추가
             is_frozen: false,
+            
+            // 최대 녹음 시간 타이머 추가
+            max_recording_timer: None,
         }
     }
 
@@ -711,8 +720,27 @@ impl Component for PitchAnalyzer {
                         link.send_message(Msg::StopAudioResources);
                     }).forget();
                     
+                    // UI 상태 업데이트를 위한 이벤트 발생
+                    if let Some(window) = web_sys::window() {
+                        if let Some(document) = window.document() {
+                            // 마이크 비활성화 이벤트 발생
+                            let event = CustomEvent::new_with_event_init_dict(
+                                "toggleAudio",
+                                CustomEventInit::new()
+                                    .bubbles(true)
+                                    .detail(&JsValue::from_bool(false)),
+                            ).unwrap_or_else(|_| web_sys::CustomEvent::new("toggleAudio").unwrap());
+                            
+                            let _ = document.dispatch_event(&event);
+                            web_sys::console::log_1(&"마이크 비활성화 이벤트 발생 (StopAudio)".into());
+                        }
+                    }
+                    
                     return true;
                 }
+
+                // 최대 녹음 시간 타이머 취소
+                self.max_recording_timer = None;
 
                 // 이미 녹음 중이 아니면 즉시 리소스 정리
                 ctx.link().send_message(Msg::StopAudioResources);
@@ -902,6 +930,42 @@ impl Component for PitchAnalyzer {
                     }
                 }
                 
+                // 최대 녹음 시간 타이머 설정 (10분 후 자동 중지)
+                let link = ctx.link().clone();
+                let max_recording_timer = gloo::timers::callback::Timeout::new(
+                    Self::MAX_RECORDING_TIME * 1000, // 밀리초 단위 변환
+                    move || {
+                        web_sys::console::log_1(&format!("최대 녹음 시간 ({}초) 도달, 자동 중지", Self::MAX_RECORDING_TIME).into());
+                        // 녹음 중지 및 마이크 비활성화 메시지 전송
+                        link.send_message(Msg::StopRecording);
+                        link.send_message(Msg::StopAudio);
+                        
+                        // 마이크 비활성화 UI 상태 업데이트를 위한 이벤트 발생
+                        if let Some(window) = web_sys::window() {
+                            if let Some(document) = window.document() {
+                                // 마이크 비활성화 이벤트 발생
+                                let event = CustomEvent::new_with_event_init_dict(
+                                    "toggleAudio",
+                                    CustomEventInit::new()
+                                        .bubbles(true)
+                                        .detail(&JsValue::from_bool(false)),
+                                ).unwrap_or_else(|_| web_sys::CustomEvent::new("toggleAudio").unwrap());
+                                
+                                let _ = document.dispatch_event(&event);
+                                web_sys::console::log_1(&"마이크 비활성화 이벤트 발생 (최대 녹음 시간 도달)".into());
+                            }
+                        }
+                        
+                        // 사용자에게 알림 표시
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.alert_with_message(&format!("최대 녹음 시간 ({}초)에 도달하여 녹음이 자동으로 중지되었습니다.", Self::MAX_RECORDING_TIME));
+                        }
+                    }
+                );
+                
+                // 이전 타이머가 있으면 취소하고 새 타이머 설정
+                self.max_recording_timer = Some(max_recording_timer);
+                
                 web_sys::console::log_1(&"녹음 시작: 시간 초기화됨".into());
 
                 true
@@ -917,6 +981,9 @@ impl Component for PitchAnalyzer {
                 
                 // 녹음 종료 상태로 변경하되 청크 처리는 아직 진행 중
                 self.is_recording = false;
+                
+                // 최대 녹음 시간 타이머 취소
+                self.max_recording_timer = None;
                 
                 // 화면 고정 활성화 - 녹음 중지 시
                 self.is_frozen = true;
@@ -1733,6 +1800,9 @@ impl Component for PitchAnalyzer {
                 // 인터벌 정리
                 self.playback_interval = None;
                 self.analysis_interval = None;
+                
+                // 최대 녹음 시간 타이머 취소
+                self.max_recording_timer = None;
 
                 web_sys::console::log_1(&"오디오 리소스 및 모든 인터벌 중지됨".into());
 

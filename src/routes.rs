@@ -238,11 +238,12 @@ pub fn pitch_controls() -> Html {
         let mic_active = mic_active.clone();
         let is_playing = is_playing.clone();
         let has_recorded = has_recorded.clone();
-        Callback::from(move |_| {
+        Callback::from(move |e: web_sys::MouseEvent| {
             if *is_playing {
                 return;
             }
             
+            // 클릭 이벤트는 항상 상태를 반전
             let new_state = !*mic_active;
             mic_active.set(new_state);
             
@@ -250,6 +251,7 @@ pub fn pitch_controls() -> Html {
                 has_recorded.set(true);
             }
 
+            // 토글 이벤트 발생
             let event = CustomEvent::new_with_event_init_dict(
                 "toggleAudio",
                 CustomEventInit::new()
@@ -722,6 +724,46 @@ pub fn pitch_controls() -> Html {
             // 메모리 누수 방지를 위해 클로저 유지
             playback_time_callback.forget();
             state_callback.forget();
+            
+            // 클린업 함수
+            || {}
+        });
+    }
+
+    // 마이크 토글 이벤트 리스너
+    {
+        let mic_active = mic_active.clone();
+        let is_playing = is_playing.clone();
+        let has_recorded = has_recorded.clone();
+        
+        use_effect(move || {
+            let window = web_sys::window().expect("window를 찾을 수 없습니다");
+            let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            // 서버에서 보내는 toggleAudio 이벤트 처리
+            let callback = Closure::wrap(Box::new(move |e: web_sys::CustomEvent| {
+                if *is_playing {
+                    return;
+                }
+                
+                // detail에 지정된 상태 가져오기
+                let new_state = e.detail().as_bool().unwrap_or(!*mic_active);
+                mic_active.set(new_state);
+                
+                if new_state {
+                    has_recorded.set(true);
+                }
+                
+                web_sys::console::log_1(&format!("서버에서 보낸 toggleAudio 이벤트 처리: new_state={}", new_state).into());
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "toggleAudio", 
+                callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 메모리 누수 방지를 위해 클로저 유지
+            callback.forget();
             
             // 클린업 함수
             || {}
