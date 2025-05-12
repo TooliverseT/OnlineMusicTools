@@ -328,9 +328,16 @@ pub enum Msg {
     StopAudioResources,
 }
 
+// 컴포넌트 Properties 정의 추가
+#[derive(Properties, PartialEq)]
+pub struct PitchAnalyzerProps {
+    #[prop_or(Some(true))]
+    pub show_links: Option<bool>,
+}
+
 impl Component for PitchAnalyzer {
     type Message = Msg;
-    type Properties = ();
+    type Properties = PitchAnalyzerProps;
 
     fn create(ctx: &Context<Self>) -> Self {
         // 이벤트 리스너 추가 - 커스텀 이벤트 수신
@@ -449,6 +456,9 @@ impl Component for PitchAnalyzer {
         monitor_listener.forget();
         volume_listener.forget();
 
+        // Props에서 show_links 값 가져오기
+        let show_links = ctx.props().show_links.unwrap_or(true);
+
         Self {
             audio_ctx: None,
             analyser: None,
@@ -460,7 +470,7 @@ impl Component for PitchAnalyzer {
             elapsed_time: 0.0,
             current_freq: 0.0,
             sensitivity: 0.01,     // 기본 감도 값
-            show_links: true,      // 기본적으로 링크 표시
+            show_links,            // props에서 가져온 값으로 초기화
             mic_active: false,     // 처음에는 마이크 비활성화 상태
             monitor_active: false, // 처음에는 모니터링 비활성화 상태
             speaker_node: None,    // 스피커 노드는 초기화되지 않음
@@ -1939,22 +1949,32 @@ impl Component for PitchAnalyzer {
             />
         };
 
-        // 대시보드 레이아웃 구성
-        let items = vec![DashboardItem {
-            id: "pitch-plot".to_string(),
-            component: pitch_plot,
-            width: 2,
-            height: 2,
-            route: Some(Route::PitchPlot),
-            show_link: self.show_links,
-        }];
+        // show_links 속성을 확인하여 dashboard 스타일 또는 직접 렌더링 결정
+        if ctx.props().show_links.unwrap_or(true) {
+            // 대시보드 레이아웃 구성 (메인 페이지)
+            let items = vec![DashboardItem {
+                id: "pitch-plot".to_string(),
+                component: pitch_plot,
+                width: 2,
+                height: 2,
+                route: Some(Route::PitchPlot),
+                show_link: self.show_links,
+            }];
 
-        let layout = DashboardLayout { items, columns: 3 };
+            let layout = DashboardLayout { items, columns: 3 };
 
-        html! {
-            <div class="app-container">
-                <Dashboard layout={layout} />
-            </div>
+            html! {
+                <div class="app-container">
+                    <Dashboard layout={layout} />
+                </div>
+            }
+        } else {
+            // 직접 렌더링 (상세 페이지)
+            html! {
+                <div class="pitch-analyzer-direct">
+                    {pitch_plot}
+                </div>
+            }
         }
     }
 }

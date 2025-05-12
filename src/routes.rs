@@ -67,9 +67,20 @@ pub fn main_layout() -> Html {
 pub fn pitch_controls_detail() -> Html {
     html! {
         <div class="detail-page">
-            <Link<Route> to={Route::Home}>{"🏠 Back to Home"}</Link<Route>>
-            <div class="content">
-                <PitchAnalyzer />
+            <div class="back-link">
+                <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
+            </div>
+            <div class="content full-width">
+                <h2>{"피치 분석기"}</h2>
+                <div class="analyzer-container">
+                    <PitchAnalyzer show_links={Some(false)} />
+                </div>
+                <div class="description">
+                    <h3>{"피치 분석기 사용법"}</h3>
+                    <p>{"이 피치 분석기는 실시간으로 마이크 입력의 주파수를 분석하여 음악적 음높이를 표시합니다."}</p>
+                    <p>{"🎤 버튼을 클릭하여 마이크를 활성화하고 소리를 입력해보세요. 녹음된 소리는 재생 버튼을 통해 다시 들을 수 있습니다."}</p>
+                    <p>{"🎚️ 버튼을 클릭하면 감도를 조절할 수 있어 다양한 환경에서 최적의 분석 결과를 얻을 수 있습니다."}</p>
+                </div>
             </div>
         </div>
     }
@@ -78,13 +89,23 @@ pub fn pitch_controls_detail() -> Html {
 // 상세 페이지 컴포넌트 - 피치 플롯
 #[function_component(PitchPlotDetail)]
 pub fn pitch_plot_detail() -> Html {
-    // 빈 데이터로 PitchPlot 컴포넌트 렌더링
-    // 실제 구현에서는 저장된 데이터를 불러오거나 API를 통해 데이터를 가져올 수 있음
     html! {
         <div class="detail-page">
-            <Link<Route> to={Route::Home}>{"🏠 Back to Home"}</Link<Route>>
-            <div class="content">
-                <p>{"Detailed pitch analysis data and visualization."}</p>
+            <div class="back-link">
+                <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
+            </div>
+            <div class="content full-width">
+                <h2>{"음높이 시각화"}</h2>
+                <div class="analyzer-container">
+                    <PitchAnalyzer show_links={Some(false)} />
+                </div>
+                <div class="description">
+                    <h3>{"음높이 시각화 도구 활용법"}</h3>
+                    <p>{"이 도구는 실시간으로 입력된 소리의 주파수를 그래프로 시각화합니다."}</p>
+                    <p>{"마이크를 활성화하고 노래나 악기 소리를 입력하면 시간에 따른 음높이 변화를 확인할 수 있습니다."}</p>
+                    <p>{"음악 연습, 발성 훈련, 음악 분석 등 다양한 용도로 활용해보세요."}</p>
+                    <p>{"차트를 클릭하고 드래그하여 특정 부분을 확대할 수 있으며, 더블클릭하면 원래 보기로 돌아갑니다."}</p>
+                </div>
             </div>
         </div>
     }
@@ -103,7 +124,6 @@ pub fn not_found() -> Html {
 #[function_component(PitchControls)]
 pub fn pitch_controls() -> Html {
     let sensitivity = use_state(|| 0.01f32);
-    let show_links = use_state(|| true);
     let show_sensitivity = use_state(|| false);
     let mic_active = use_state(|| false);
     let monitor_active = use_state(|| false);
@@ -193,29 +213,6 @@ pub fn pitch_controls() -> Html {
                 CustomEventInit::new()
                     .bubbles(true)
                     .detail(&JsValue::from_f64(value as f64)),
-            )
-            .unwrap();
-            web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .dispatch_event(&event)
-                .unwrap();
-        })
-    };
-
-    let toggle_links = {
-        let show_links = show_links.clone();
-        Callback::from(move |_| {
-            let new_state = !*show_links;
-            show_links.set(new_state);
-
-            // 링크 토글 이벤트 발생
-            let event = CustomEvent::new_with_event_init_dict(
-                "toggleLinks",
-                CustomEventInit::new()
-                    .bubbles(true)
-                    .detail(&JsValue::from_bool(new_state)),
             )
             .unwrap();
             web_sys::window()
@@ -935,9 +932,6 @@ pub fn pitch_controls() -> Html {
                     }
                 }
                 
-                <button class="icon-button" onclick={toggle_links} title={if *show_links { "링크 숨기기" } else { "링크 표시하기" }}>
-                    { if *show_links { "🔗" } else { "🔓" } }
-                </button>
                 <div class="sensitivity-dropdown">
                     <button class="icon-button" onclick={toggle_sensitivity} title="마이크 감도 조절">
                         { "🎚️" }
