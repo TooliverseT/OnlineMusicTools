@@ -198,45 +198,42 @@
       background-color: transparent;
       color: #d5d1a7;
       border-radius: 4px;
-      border: 1px solid #2c4550;
-      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-right: 8px;
-      transition: all 0.2s;
+      transition: background-color 0.2s, transform 0.2s, color 0.2s;
+      box-shadow: none;
     }
     
     .icon-button:hover {
-      background-color: #16272d;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      background-color: rgba(213, 209, 167, 0.1);
       transform: translateY(-2px);
     }
     
-    /* 마이크 활성화 버튼 스타일 */
-    .icon-button.mic-active {
-      background-color: rgba(255, 0, 0, 0.1);
-      border-color: rgba(255, 0, 0, 0.3);
-      color: #ff5555;
-      animation: pulse 2s infinite;
+    .icon-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
     }
     
-    /* 펄스 애니메이션 */
-    @keyframes pulse {
-      0% {
-        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
-      }
-      70% {
-        box-shadow: 0 0 0 6px rgba(255, 0, 0, 0);
-      }
-      100% {
-        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
-      }
+    /* 마이크 활성화 상태 버튼 스타일 */
+    .mic-active {
+      background-color: rgba(255, 0, 0, 0.2);
+      transform: translateY(-1px);
+      color: #FFBF2A;
     }
     
-    /* 네비게이션 컨트롤 버튼 그룹 */
+    /* 모니터링 활성화 상태 버튼 스타일 */
+    .monitor-active {
+      background-color: rgba(0, 255, 0, 0.2);
+      transform: translateY(-1px);
+      color: #9EF5CF;
+    }
+    
+    /* 네비게이션 컨트롤 버튼 영역 */
     .navbar-controls-buttons {
       display: flex;
+      gap: 10px;
       align-items: center;
     }
     
@@ -411,6 +408,74 @@
       
       .detail-page {
         padding: 20px;
+      }
+    }
+    
+    /* 재생 게이지 바 스타일 */
+    .playback-progress {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 300px;
+      margin-left: 10px;
+    }
+    
+    .progress-bar {
+      flex-grow: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #2c4550;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+    
+    .progress-bar::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      background: #FFBF2A;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: width 0.2s, height 0.2s, background 0.2s;
+    }
+    
+    .progress-bar::-webkit-slider-thumb:hover {
+      width: 14px;
+      height: 14px;
+      background: #FFA500;
+    }
+    
+    .progress-bar:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .time-display {
+      font-size: 12px;
+      font-weight: 500;
+      color: #d5d1a7;
+      min-width: 45px;
+      text-align: center;
+    }
+    
+    /* 재생 버튼 활성화 스타일 */
+    .play-active {
+      background-color: rgba(255, 165, 0, 0.2);
+      transform: translateY(-1px);
+      color: #FFBF2A;
+    }
+    
+    /* 모바일 기기를 위한 반응형 스타일 */
+    @media (max-width: 768px) {
+      .playback-progress {
+        width: 200px;
+      }
+      
+      .time-display {
+        font-size: 10px;
+        min-width: 35px;
       }
     }
   </style>
