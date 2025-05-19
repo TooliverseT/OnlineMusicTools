@@ -326,6 +326,9 @@ pub enum Msg {
 
     // 새 메시지 추가: 오디오 리소스 정리
     StopAudioResources,
+    
+    // 새 메시지 추가: 컴포넌트 상태 완전 초기화
+    ResetComponent,
 }
 
 // 컴포넌트 Properties 정의 추가
@@ -446,6 +449,26 @@ impl Component for PitchAnalyzer {
             download_callback.emit(e.clone());
         });
         
+        // 오디오 리소스 정리 이벤트 리스너 추가
+        let resources_link = ctx.link().clone();
+        let resources_callback = Callback::from(move |_: web_sys::Event| {
+            resources_link.send_message(Msg::StopAudioResources);
+        });
+        
+        let resources_listener = EventListener::new(&document, "stopAudioResources", move |e| {
+            resources_callback.emit(e.clone());
+        });
+        
+        // 컴포넌트 상태 초기화 이벤트 리스너 추가
+        let reset_link = ctx.link().clone();
+        let reset_callback = Callback::from(move |_: web_sys::Event| {
+            reset_link.send_message(Msg::ResetComponent);
+        });
+        
+        let reset_listener = EventListener::new(&document, "resetPitchAnalyzer", move |e| {
+            reset_callback.emit(e.clone());
+        });
+        
         // 모든 이벤트 리스너 forget 호출
         download_listener.forget();
         seek_listener.forget();
@@ -455,6 +478,8 @@ impl Component for PitchAnalyzer {
         toggle_listener.forget();
         monitor_listener.forget();
         volume_listener.forget();
+        resources_listener.forget();
+        reset_listener.forget();
 
         // Props에서 show_links 값 가져오기
         let show_links = ctx.props().show_links.unwrap_or(true);
@@ -1896,6 +1921,104 @@ impl Component for PitchAnalyzer {
                 
                 web_sys::console::error_1(&"오디오 다운로드 실패".into());
                 false
+            },
+            
+            // 새 메시지 추가: 컴포넌트 상태 완전 초기화
+            Msg::ResetComponent => {
+                web_sys::console::log_1(&"PitchAnalyzer 컴포넌트 상태 초기화 시작".into());
+                
+                // 오디오 재생/녹음 관련 상태 초기화
+                if self.is_playing {
+                    if let Some(audio_element) = &self.audio_element {
+                        let _ = audio_element.pause();
+                    }
+                    self.is_playing = false;
+                }
+                
+                // 녹음 중이면 중지
+                if self.is_recording {
+                    if let Some(recorder) = &self.recorder {
+                        if recorder.state() == web_sys::RecordingState::Recording {
+                            let _ = recorder.stop();
+                        }
+                    }
+                    self.is_recording = false;
+                }
+                
+                // 오디오 컨텍스트 정리
+                if let Some(ctx) = &self.audio_ctx {
+                    let _ = ctx.close();
+                }
+                
+                // 스트림 트랙 정지
+                if let Some(stream) = &self._stream {
+                    let tracks = stream.get_audio_tracks();
+                    for i in 0..tracks.length() {
+                        let track_js = tracks.get(i);
+                        let track = web_sys::MediaStreamTrack::from(track_js);
+                        track.stop();
+                    }
+                }
+                
+                // URL 리소스 정리
+                if let Some(url) = &self.recorded_audio_url {
+                    let _ = web_sys::Url::revoke_object_url(url);
+                }
+                
+                // 모든 인터벌 및 타이머 정리
+                self.analysis_interval = None;
+                self.playback_interval = None;
+                self.max_recording_timer = None;
+                
+                // 오디오 요소 이벤트 핸들러 제거
+                if let Some(audio) = &self.audio_element {
+                    audio.set_onloadeddata(None);
+                    audio.set_onloadedmetadata(None);
+                    audio.set_onended(None);
+                }
+                
+                // 레코더 이벤트 핸들러 제거
+                if let Some(recorder) = &self.recorder {
+                    recorder.set_ondataavailable(None);
+                    recorder.set_onstop(None);
+                }
+                
+                // 스피커 노드 연결 해제
+                if let Some(speaker_node) = &self.speaker_node {
+                    speaker_node.disconnect();
+                }
+                
+                // 모든 데이터 컬렉션 비우기
+                self.prev_freqs.clear();
+                self.history.clear();
+                self.recorded_chunks.clear();
+                
+                // 기본 상태로 재설정
+                self.audio_ctx = None;
+                self.analyser = None;
+                self._stream = None;
+                self.pitch = "🎤 음성 입력 대기...".to_string();
+                self.current_freq = 0.0;
+                self.elapsed_time = 0.0;
+                self.mic_active = false;
+                self.monitor_active = false;
+                self.speaker_node = None;
+                self.recorder = None;
+                self.recorded_audio_url = None;
+                self.audio_element = None;
+                self.playback_time = 0.0;
+                self.last_recording_time = 0.0;
+                self.recording_start_time = 0.0;
+                self.is_frozen = false;
+                self.created_at_time = js_sys::Date::new_0().get_time();
+                
+                // 감도는 기본값으로 유지 (props 설정 유지를 위함)
+                // self.sensitivity = 0.01;
+                // self.show_links는 props로부터 온 값이므로 변경하지 않음
+                
+                web_sys::console::log_1(&"PitchAnalyzer 컴포넌트 상태 초기화 완료".into());
+                
+                true
             },
         }
     }

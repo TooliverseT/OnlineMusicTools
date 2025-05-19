@@ -7,6 +7,8 @@ use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::pitch_plot::PitchPlot;
 use crate::PitchAnalyzer;
 
+use log::info;
+
 // 애플리케이션의 라우트 정의
 #[derive(Clone, Routable, PartialEq)]
 pub enum Route {
@@ -43,6 +45,40 @@ pub fn navbar() -> Html {
 pub fn main_layout() -> Html {
     let location = use_location().unwrap();
     let route = Route::recognize(&location.path()).unwrap_or(Route::NotFound);
+    
+    // 라우트 변경 추적을 위한 이전 라우트 상태 추가
+    let prev_route = use_state(|| route.clone());
+    
+    // 라우트 변경 감지 및 마이크 비활성화 효과
+    {
+        let current_route = route.clone();
+        let prev_route_state = prev_route.clone();
+        
+        use_effect(move || {
+            // 라우트가 변경되었는지 확인
+            if *prev_route_state != current_route {
+                // 이전 라우트 업데이트
+                prev_route_state.set(current_route.clone());
+                
+                // 마이크 비활성화 이벤트 발생 (페이지 이동 시)
+                let window = web_sys::window().expect("window를 찾을 수 없습니다");
+                let document = window.document().expect("document를 찾을 수 없습니다");
+                
+                // 페이지 이동 시 PitchAnalyzer 전체 상태 초기화를 위한 이벤트 발생
+                let reset_event = web_sys::Event::new("resetPitchAnalyzer").unwrap();
+                document.dispatch_event(&reset_event).unwrap();
+                
+                // StopAudioResources 이벤트 발생 - 모든 오디오 리소스 정리
+                let stop_resources_event = web_sys::Event::new("stopAudioResources").unwrap();
+                document.dispatch_event(&stop_resources_event).unwrap();
+                
+                web_sys::console::log_1(&format!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생").into());
+            }
+            
+            // 클린업 함수
+            || {}
+        });
+    }
 
     // 현재 라우트에 따른 컨텐츠 선택
     let content = match route {
@@ -157,6 +193,48 @@ pub fn pitch_controls() -> Html {
             
             document.add_event_listener_with_callback(
                 "playbackEnded", 
+                callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 메모리 누수 방지를 위해 클로저 유지
+            callback.forget();
+            
+            // 클린업 함수
+            || {}
+        });
+    }
+    
+    // 컨트롤 상태 초기화 이벤트 리스너 추가
+    {
+        let mic_active = mic_active.clone();
+        let monitor_active = monitor_active.clone();
+        let is_playing = is_playing.clone();
+        let has_recorded = has_recorded.clone();
+        let current_time = current_time.clone();
+        let duration = duration.clone();
+        let progress = progress.clone();
+        let is_seeking = is_seeking.clone();
+        
+        use_effect(move || {
+            let window = web_sys::window().expect("window를 찾을 수 없습니다");
+            let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
+                mic_active.set(false);
+                monitor_active.set(false);
+                is_playing.set(false);
+                has_recorded.set(false);
+                current_time.set(0.0);
+                duration.set(0.0);
+                progress.set(0.0);
+                is_seeking.set(false);
+                
+                web_sys::console::log_1(&"[PitchControls] 컨트롤 상태가 초기화되었습니다".into());
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "resetPitchAnalyzer", 
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
@@ -902,7 +980,6 @@ pub fn pitch_controls() -> Html {
                 
                 // 재생 게이지 바 추가
                 {
-                    if *has_recorded {
                         html! {
                             <div class="playback-progress">
                                 <span class="time-display current-time">{ format_time(*current_time) }</span>
@@ -927,9 +1004,6 @@ pub fn pitch_controls() -> Html {
                                 <span class="time-display duration">{ format_time(*duration) }</span>
                             </div>
                         }
-                    } else {
-                        html! {}
-                    }
                 }
                 
                 <div class="sensitivity-dropdown">
