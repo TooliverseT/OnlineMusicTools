@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{self, CustomEvent, CustomEventInit, Event};
 use yew::prelude::*;
 use yew_router::prelude::*;
+use gloo::events::EventListener;
 
 use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::pitch_plot::PitchPlot;
@@ -167,6 +168,9 @@ pub fn pitch_controls() -> Html {
     let has_recorded = use_state(|| true);
     let speaker_gain = use_state(|| 0.02f32);
     
+    // 버튼 활성화/비활성화 상태 추가 - 로그를 통해 디버깅
+    let buttons_disabled = use_state(|| false);
+    
     // 재생 정보 상태 추가
     let current_time = use_state(|| 0.0f64);        // 현재 재생 시간
     let duration = use_state(|| 0.0f64);            // 총 녹음 시간
@@ -235,6 +239,61 @@ pub fn pitch_controls() -> Html {
             
             document.add_event_listener_with_callback(
                 "resetPitchAnalyzer", 
+                callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 메모리 누수 방지를 위해 클로저 유지
+            callback.forget();
+            
+            // 클린업 함수
+            || {}
+        });
+    }
+    
+    // 버튼 비활성화 이벤트 처리 - 기본 use_effect로 변경
+    {
+        let buttons_disabled = buttons_disabled.clone();
+    
+        use_effect(move || {
+            let window = web_sys::window().expect("window를 찾을 수 없습니다");
+            let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
+                buttons_disabled.set(true);
+                
+                web_sys::console::log_1(&"[PitchControls] 컨트롤 버튼이 비활성화되었습니다 (이벤트 핸들러)".into());
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "disableControlButtons", 
+                callback.as_ref().unchecked_ref()
+            ).expect("이벤트 리스너 추가 실패");
+            
+            // 메모리 누수 방지를 위해 클로저 유지
+            callback.forget();
+            
+            // 클린업 함수
+            || {}
+        });
+    }
+
+    {
+        let buttons_disabled = buttons_disabled.clone();
+
+        use_effect(move || {
+            let window = web_sys::window().expect("window를 찾을 수 없습니다");
+            let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
+                buttons_disabled.set(false);
+                
+                web_sys::console::log_1(&"[PitchControls] 컨트롤 버튼이 활성화되었습니다 (이벤트 핸들러)".into());
+            }) as Box<dyn FnMut(_)>);
+            
+            document.add_event_listener_with_callback(
+                "enableControlButtons", 
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
@@ -939,6 +998,9 @@ pub fn pitch_controls() -> Html {
         })
     };
 
+    let buttons_disabled = buttons_disabled.clone();
+    info!("buttons_disabled: {}", *buttons_disabled);
+
     html! {
         <div class="pitch-controls navbar-item">
             <div class="navbar-controls-buttons">
@@ -946,7 +1008,7 @@ pub fn pitch_controls() -> Html {
                     class={classes!("icon-button", if *mic_active { "mic-active" } else { "" })}
                     onclick={toggle_audio}
                     title={if *mic_active { "마이크 비활성화" } else { "마이크 활성화" }}
-                    disabled={*is_playing}
+                    disabled={*is_playing || *buttons_disabled}
                 >
                     { if *mic_active { "🔴" } else { "🎤" } }
                 </button>
@@ -954,7 +1016,7 @@ pub fn pitch_controls() -> Html {
                     class={classes!("icon-button", if *monitor_active { "monitor-active" } else { "" })}
                     onclick={toggle_monitor}
                     title={if *monitor_active { "모니터링 비활성화" } else { "모니터링 활성화" }}
-                    disabled={!*mic_active}
+                    disabled={!*mic_active || *buttons_disabled}
                 >
                     { if *monitor_active { "🔊" } else { "🔈" } }
                 </button>
@@ -963,7 +1025,7 @@ pub fn pitch_controls() -> Html {
                     class={classes!("icon-button", if *is_playing { "play-active" } else { "" })}
                     onclick={toggle_playback}
                     title={if *is_playing { "일시정지" } else { "재생" }}
-                    disabled={*mic_active || !*has_recorded}
+                    disabled={*mic_active || !*has_recorded || *buttons_disabled}
                 >
                     { if *is_playing { "⏸️" } else { "▶️" } }
                 </button>
@@ -973,37 +1035,37 @@ pub fn pitch_controls() -> Html {
                     class="icon-button download-button"
                     onclick={download_recording}
                     title="녹음 파일 다운로드"
-                    disabled={*mic_active || !*has_recorded}
+                    disabled={*mic_active || !*has_recorded || *buttons_disabled}
                 >
                     { "💾" }
                 </button>
                 
                 // 재생 게이지 바 추가
                 {
-                        html! {
-                            <div class="playback-progress">
-                                <span class="time-display current-time">{ format_time(*current_time) }</span>
-                                <input 
-                                    type="range"
-                                    class="progress-bar"
-                                    min="0"
-                                    max="1"
-                                    step="0.001"
-                                    value={(*progress).to_string()}
-                                    onchange={on_progress_change}
-                                    oninput={on_progress_input}
-                                    onmousedown={on_seek_start}
-                                    onmouseup={on_seek_end}
-                                    onmousemove={on_mouse_move}
-                                    ontouchstart={on_touch_start}
-                                    ontouchmove={on_touch_move}
-                                    ontouchend={on_touch_end}
-                                    disabled={*mic_active}
-                                    style="cursor: pointer;"
-                                />
-                                <span class="time-display duration">{ format_time(*duration) }</span>
-                            </div>
-                        }
+                    html! {
+                        <div class="playback-progress">
+                            <span class="time-display current-time">{ format_time(*current_time) }</span>
+                            <input 
+                                type="range"
+                                class="progress-bar"
+                                min="0"
+                                max="1"
+                                step="0.001"
+                                value={(*progress).to_string()}
+                                onchange={on_progress_change}
+                                oninput={on_progress_input}
+                                onmousedown={on_seek_start}
+                                onmouseup={on_seek_end}
+                                onmousemove={on_mouse_move}
+                                ontouchstart={on_touch_start}
+                                ontouchmove={on_touch_move}
+                                ontouchend={on_touch_end}
+                                disabled={*mic_active || *buttons_disabled}
+                                style="cursor: pointer;"
+                            />
+                            <span class="time-display duration">{ format_time(*duration) }</span>
+                        </div>
+                    }
                 }
                 
                 <div class="sensitivity-dropdown">
@@ -1024,6 +1086,7 @@ pub fn pitch_controls() -> Html {
                                             step="0.01"
                                             value={(*speaker_gain).to_string()}
                                             onchange={on_speaker_gain_change.clone()}
+                                            disabled={*buttons_disabled}
                                         />
                                         <span>{ format!("{:.2}", *speaker_gain) }</span>
                                     </div>

@@ -786,7 +786,16 @@ impl Component for PitchAnalyzer {
                             ).unwrap_or_else(|_| web_sys::CustomEvent::new("toggleAudio").unwrap());
                             
                             let _ = document.dispatch_event(&event);
-                            web_sys::console::log_1(&"마이크 비활성화 이벤트 발생 (StopAudio)".into());
+                            
+                            // 컨트롤 버튼 비활성화 이벤트 발생 (명시적으로 분리하여 처리)
+                            let disable_event = web_sys::Event::new("disableControlButtons").expect("disableControlButtons 이벤트 생성 실패");
+                            if let Err(err) = document.dispatch_event(&disable_event) {
+                                web_sys::console::error_1(&format!("disableControlButtons 이벤트 발생 실패: {:?}", err).into());
+                            } else {
+                                web_sys::console::log_1(&"컨트롤 버튼 비활성화 이벤트 발생 성공 (StopAudio)".into());
+                            }
+                            
+                            web_sys::console::log_1(&"마이크 비활성화 및 컨트롤 버튼 비활성화 이벤트 발생 (StopAudio)".into());
                         }
                     }
                     
@@ -797,7 +806,7 @@ impl Component for PitchAnalyzer {
                 self.max_recording_timer = None;
 
                 // 이미 녹음 중이 아니면 즉시 리소스 정리
-                ctx.link().send_message(Msg::StopAudioResources);
+                // ctx.link().send_message(Msg::StopAudioResources);
                 true
             },
 
@@ -1860,6 +1869,19 @@ impl Component for PitchAnalyzer {
                 
                 // 최대 녹음 시간 타이머 취소
                 self.max_recording_timer = None;
+
+                // 컨트롤 버튼 활성화 이벤트 발생
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        // 이벤트 생성 및 발생
+                        let enable_event = web_sys::Event::new("enableControlButtons").expect("enableControlButtons 이벤트 생성 실패");
+                        if let Err(err) = document.dispatch_event(&enable_event) {
+                            web_sys::console::error_1(&format!("enableControlButtons 이벤트 발생 실패: {:?}", err).into());
+                        } else {
+                            web_sys::console::log_1(&"컨트롤 버튼 활성화 이벤트 발생 성공 (StopAudioResources)".into());
+                        }
+                    }
+                }
 
                 web_sys::console::log_1(&"오디오 리소스 및 모든 인터벌 중지됨".into());
 
