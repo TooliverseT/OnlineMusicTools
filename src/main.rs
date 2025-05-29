@@ -1,5 +1,5 @@
 use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
-use crate::pitch_plot::PitchPlot;
+use crate::tools::pitch_plot::PitchPlot;
 use crate::routes::{switch, Route};
 use gloo::events::EventListener;
 use js_sys::{Float32Array, Promise, Object};
@@ -17,7 +17,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 mod dashboard;
-mod pitch_plot;
+mod tools;
 mod routes;
 
 #[wasm_bindgen]

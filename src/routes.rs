@@ -5,7 +5,7 @@ use yew_router::prelude::*;
 use gloo::events::EventListener;
 
 use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
-use crate::pitch_plot::PitchPlot;
+use crate::tools::pitch_plot::PitchPlot;
 use crate::PitchAnalyzer;
 
 use log::info;
