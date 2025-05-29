@@ -1,23 +1,30 @@
 use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
-use crate::tools::pitch_plot::PitchPlot;
 use crate::routes::{switch, Route};
 use gloo::events::EventListener;
-use js_sys::{Float32Array, Promise, Object};
+use js_sys::{Object};
 use log::info;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    AnalyserNode, AudioContext, HtmlCanvasElement, MediaDevices, MediaStream,
-    MediaStreamAudioSourceNode, MediaStreamConstraints, Navigator, CustomEvent, CustomEventInit,
-    HtmlAnchorElement,
+    AnalyserNode, AudioContext, MediaStream,
+    MediaStreamConstraints, CustomEvent, CustomEventInit,
 };
 use yew::prelude::*;
 use yew_router::prelude::*;
 
+// tools 모듈 선언
+mod tools {
+    pub mod pitch_plot;
+    pub mod amplitude_visualizer;
+}
+
+// tools 모듈 컴포넌트 import
+use crate::tools::pitch_plot::PitchPlot;
+use crate::tools::amplitude_visualizer::AmplitudeVisualizer;
+
 mod dashboard;
-mod tools;
 mod routes;
 
 #[wasm_bindgen]
@@ -239,6 +246,12 @@ pub struct PitchAnalyzer {
     
     // 녹음 생성 시간 (파일명 생성용)
     created_at_time: f64,
+    
+    // 진폭 시각화 관련 필드 추가
+    amplitude_data: Option<Vec<f32>>,         // 현재 진폭 데이터 배열
+    // 진폭 히스토리를 (시간, 진폭 데이터 배열) 형태로 저장
+    amplitude_history: VecDeque<(f64, Vec<f32>)>,  // 진폭 히스토리 (시간, 진폭 데이터)
+    current_rms: f32,                         // 현재 RMS 레벨
 }
 
 // PitchAnalyzer 일반 메서드 구현
@@ -525,6 +538,11 @@ impl Component for PitchAnalyzer {
             
             // 녹음 생성 시간 초기화 (현재 시간으로)
             created_at_time: js_sys::Date::new_0().get_time(),
+            
+            // 진폭 시각화 관련 필드 추가
+            amplitude_data: None,
+            amplitude_history: VecDeque::with_capacity(1000),
+            current_rms: 0.0,
         }
     }
 
@@ -700,6 +718,25 @@ impl Component for PitchAnalyzer {
                     if self.is_recording {
                         self.last_recording_time = current_time;
                         self.update_playback_time_ui(current_time);
+                    }
+
+                    // 진폭 데이터 처리 추가
+                    // RMS(Root Mean Square) 계산 - 진폭의 평균 제곱근
+                    let rms = (buffer.iter().map(|&x| x * x).sum::<f32>() / buffer.len() as f32).sqrt();
+                    self.current_rms = rms;
+                    
+                    // 진폭 데이터 저장
+                    self.amplitude_data = Some(buffer.clone());
+                    
+                    // 녹음 중인 경우에만 진폭 히스토리 업데이트
+                    if self.is_recording {
+                        // 현재 상대 시간과 함께 진폭 데이터 기록 (전체 진폭 데이터 저장)
+                        self.amplitude_history.push_back((current_time, buffer.clone()));
+                        
+                        // 히스토리 크기 제한 (최대 1000개 데이터 포인트 유지)
+                        if self.amplitude_history.len() > 1000 {
+                            self.amplitude_history.pop_front();
+                        }
                     }
 
                     true
@@ -1441,7 +1478,7 @@ impl Component for PitchAnalyzer {
                     let audio_element_clone = audio_element.clone();
                     
                     // 새 인터벌 생성
-                    let interval = gloo::timers::callback::Interval::new(100, move || {
+                    let interval = gloo::timers::callback::Interval::new(30, move || {
                         // 오디오 요소가 아직 유효한지 확인
                         if audio_element_clone.ended() {
                             web_sys::console::log_1(&"재생 종료 감지됨 (인터벌)".into());
@@ -1589,6 +1626,34 @@ impl Component for PitchAnalyzer {
                     self.current_freq = 0.0;
                 }
                 
+                // 현재 재생 시점의 진폭 데이터 찾기
+                if let Some((closest_t, amp_data)) = self.amplitude_history.iter()
+                    .filter(|(t, _)| (t - time).abs() < 0.2) // 시간 허용 오차 설정
+                    .min_by(|(t1, _), (t2, _)| {
+                        let diff1 = (t1 - time).abs();
+                        let diff2 = (t2 - time).abs();
+                        diff1.partial_cmp(&diff2).unwrap_or(std::cmp::Ordering::Equal)
+                    }) {
+                    
+                    // 저장된 진폭 데이터 사용
+                    self.amplitude_data = Some(amp_data.clone());
+                    
+                    // RMS 값도 계산해서 업데이트 (필요한 경우)
+                    let rms = (amp_data.iter().map(|&x| x * x).sum::<f32>() / amp_data.len() as f32).sqrt();
+                    self.current_rms = rms;
+                    
+                    // 로그 줄여서 성능 향상
+                    if time % 1.0 < 0.03 { // 대략 1초마다 한 번만 로그 출력
+                        web_sys::console::log_1(&format!("🔊 재생 시간 {:.2}s의 진폭 데이터: {} 개, RMS: {:.3}", 
+                            time, amp_data.len(), rms).into());
+                    }
+                } else {
+                    // 해당 시점에 진폭 데이터가 없으면 빈 데이터 설정
+                    let empty_amplitude = vec![0.0f32; 128];
+                    self.amplitude_data = Some(empty_amplitude);
+                    self.current_rms = 0.0;
+                }
+                
                 // 재생 최대 시간 업데이트 (기록된 history의 마지막 시간값과 비교)
                 if let Some((last_time, _)) = self.history.back() {
                     if time > *last_time {
@@ -1637,6 +1702,23 @@ impl Component for PitchAnalyzer {
                 
                 // playback_time을 정확히 마지막 녹음 시간으로 설정
                 self.playback_time = self.last_recording_time;
+                
+                // 재생 완료 시 마지막 진폭 데이터 찾기 및 업데이트
+                let last_time = self.last_recording_time;
+                if let Some((_, amp_data)) = self.amplitude_history.iter()
+                    .filter(|(t, _)| *t <= last_time) // 마지막 시간 이전의 데이터
+                    .max_by(|(t1, _), (t2, _)| t1.partial_cmp(t2).unwrap_or(std::cmp::Ordering::Equal)) {
+                    
+                    // 저장된 진폭 데이터 사용
+                    self.amplitude_data = Some(amp_data.clone());
+                    
+                    // RMS 값도 계산해서 업데이트
+                    let rms = (amp_data.iter().map(|&x| x * x).sum::<f32>() / amp_data.len() as f32).sqrt();
+                    self.current_rms = rms;
+                    
+                    web_sys::console::log_1(&format!("🔊 재생 완료 시 마지막 진폭 데이터: {} 개, RMS: {:.3}", 
+                        amp_data.len(), rms).into());
+                }
                 
                 // 재생 시간 UI 업데이트 (게이지바를 정확히 끝까지 채움)
                 self.update_playback_time_ui(self.last_recording_time);
@@ -1725,6 +1807,31 @@ impl Component for PitchAnalyzer {
                                     strongest_freq, self.pitch).into());
                             }
                         }
+                    }
+                    
+                    // 현재 시크 위치의 진폭 데이터 검색 및 업데이트
+                    if let Some((_, amp_data)) = self.amplitude_history.iter()
+                        .filter(|(t, _)| (t - seek_time).abs() < 0.2) // 0.2초 내의 데이터
+                        .min_by(|(t1, _), (t2, _)| {
+                            let diff1 = (t1 - seek_time).abs();
+                            let diff2 = (t2 - seek_time).abs();
+                            diff1.partial_cmp(&diff2).unwrap_or(std::cmp::Ordering::Equal)
+                        }) {
+                        
+                        // 저장된 진폭 데이터 사용
+                        self.amplitude_data = Some(amp_data.clone());
+                        
+                        // RMS 값도 계산해서 업데이트 (필요한 경우)
+                        let rms = (amp_data.iter().map(|&x| x * x).sum::<f32>() / amp_data.len() as f32).sqrt();
+                        self.current_rms = rms;
+                        
+                        web_sys::console::log_1(&format!("🔊 시크 위치의 진폭 데이터: {} 개, RMS: {:.3}", 
+                            amp_data.len(), rms).into());
+                    } else {
+                        // 해당 시점에 진폭 데이터가 없으면 빈 데이터 설정
+                        let empty_amplitude = vec![0.0f32; 128];
+                        self.amplitude_data = Some(empty_amplitude);
+                        self.current_rms = 0.0;
                     }
                     
                     // UI 시간 업데이트 (항상 수행)
@@ -2038,6 +2145,11 @@ impl Component for PitchAnalyzer {
                 // self.sensitivity = 0.01;
                 // self.show_links는 props로부터 온 값이므로 변경하지 않음
                 
+                // 진폭 데이터 초기화
+                self.amplitude_data = None;
+                self.amplitude_history.clear();
+                self.current_rms = 0.0;
+                
                 web_sys::console::log_1(&"PitchAnalyzer 컴포넌트 상태 초기화 완료".into());
                 
                 true
@@ -2094,17 +2206,38 @@ impl Component for PitchAnalyzer {
             />
         };
 
+        // 진폭 시각화 컴포넌트
+        let amplitude_visualizer = html! {
+            <AmplitudeVisualizer 
+                amplitude_data={self.amplitude_data.clone()}
+                sample_rate={Some(44100.0)}
+                is_recording={self.is_recording}
+                is_playing={self.is_playing}
+                history={Some(self.amplitude_history.clone())}
+            />
+        };
+
         // show_links 속성을 확인하여 dashboard 스타일 또는 직접 렌더링 결정
         if ctx.props().show_links.unwrap_or(true) {
             // 대시보드 레이아웃 구성 (메인 페이지)
-            let items = vec![DashboardItem {
-                id: "pitch-plot".to_string(),
-                component: pitch_plot,
-                width: 2,
-                height: 2,
-                route: Some(Route::PitchPlot),
-                show_link: self.show_links,
-            }];
+            let items = vec![
+                DashboardItem {
+                    id: "pitch-plot".to_string(),
+                    component: pitch_plot,
+                    width: 2,
+                    height: 2,
+                    route: Some(Route::PitchPlot),
+                    show_link: self.show_links,
+                },
+                DashboardItem {
+                    id: "amplitude-visualizer".to_string(),
+                    component: amplitude_visualizer,
+                    width: 1,
+                    height: 1,
+                    route: Some(Route::AmplitudeVisualizer),
+                    show_link: self.show_links,
+                }
+            ];
 
             let layout = DashboardLayout { items, columns: 3 };
 
@@ -2115,9 +2248,30 @@ impl Component for PitchAnalyzer {
             }
         } else {
             // 직접 렌더링 (상세 페이지)
+            // 현재 라우트에 따라 해당 컴포넌트만 렌더링
+            let current_route = if let Some(window) = web_sys::window() {
+                if let Some(location) = window.location().pathname().ok() {
+                    if location.contains("amplitude") {
+                        "amplitude"
+                    } else {
+                        "pitch"
+                    }
+                } else {
+                    "pitch"
+                }
+            } else {
+                "pitch"
+            };
+
             html! {
                 <div class="pitch-analyzer-direct">
-                    {pitch_plot}
+                    {
+                        if current_route == "amplitude" {
+                            amplitude_visualizer
+                        } else {
+                            pitch_plot
+                        }
+                    }
                 </div>
             }
         }

@@ -1,11 +1,9 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{self, CustomEvent, CustomEventInit, Event};
+use web_sys::{self, CustomEvent, CustomEventInit};
 use yew::prelude::*;
 use yew_router::prelude::*;
-use gloo::events::EventListener;
+use std::collections::VecDeque;
 
-use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
-use crate::tools::pitch_plot::PitchPlot;
 use crate::PitchAnalyzer;
 
 use log::info;
@@ -19,6 +17,8 @@ pub enum Route {
     PitchControls,
     #[at("/pitch-plot")]
     PitchPlot,
+    #[at("/amplitude-visualizer")]
+    AmplitudeVisualizer,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -86,6 +86,7 @@ pub fn main_layout() -> Html {
         Route::Home => html! { <PitchAnalyzer /> },
         Route::PitchControls => html! { <PitchControlsDetail /> },
         Route::PitchPlot => html! { <PitchPlotDetail /> },
+        Route::AmplitudeVisualizer => html! { <AmplitudeVisualizerDetail /> },
         Route::NotFound => html! { <NotFound /> },
     };
 
@@ -142,6 +143,41 @@ pub fn pitch_plot_detail() -> Html {
                     <p>{"마이크를 활성화하고 노래나 악기 소리를 입력하면 시간에 따른 음높이 변화를 확인할 수 있습니다."}</p>
                     <p>{"음악 연습, 발성 훈련, 음악 분석 등 다양한 용도로 활용해보세요."}</p>
                     <p>{"차트를 클릭하고 드래그하여 특정 부분을 확대할 수 있으며, 더블클릭하면 원래 보기로 돌아갑니다."}</p>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[function_component(AmplitudeVisualizerDetail)]
+pub fn amplitude_visualizer_detail() -> Html {
+    // 진폭 시각화 컴포넌트용 상태 (시연 데이터)
+    let dummy_history = use_state(|| {
+        let mut history = VecDeque::new();
+        for i in 0..100 {
+            let time = i as f64 * 0.1;
+            let amplitude = (time * 0.5).sin().abs() as f32 * 0.5;
+            history.push_back((time, amplitude));
+        }
+        history
+    });
+
+    html! {
+        <div class="detail-page">
+            <div class="back-link">
+                <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
+            </div>
+            <div class="content full-width">
+                <h2>{"진폭 시각화"}</h2>
+                <div class="analyzer-container">
+                    <PitchAnalyzer show_links={Some(false)} />
+                </div>
+                <div class="description">
+                    <h3>{"진폭 시각화 도구 활용법"}</h3>
+                    <p>{"이 도구는 마이크 입력의 진폭을 실시간으로 그래프로 시각화합니다."}</p>
+                    <p>{"마이크를 활성화하고 소리를 입력하면 시간에 따른 소리의 크기 변화를 확인할 수 있습니다."}</p>
+                    <p>{"볼륨 레벨 모니터링, 소음 분석, 음성 패턴 분석 등에 활용할 수 있습니다."}</p>
+                    <p>{"차트 설정을 조절하여 표시되는 시간 범위를 변경하거나 자동 스크롤을 켜고 끌 수 있습니다."}</p>
                 </div>
             </div>
         </div>
