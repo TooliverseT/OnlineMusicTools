@@ -2273,8 +2273,8 @@ impl Component for PitchAnalyzer {
                 DashboardItem {
                     id: "pitch-plot".to_string(),
                     component: pitch_plot,
-                    width: 2,
-                    height: 2,
+                    width: 3,
+                    height: 3,
                     route: Some(Route::PitchPlot),
                     show_link: self.show_links,
                 },
@@ -2288,7 +2288,7 @@ impl Component for PitchAnalyzer {
                 }
             ];
 
-            let layout = DashboardLayout { items, columns: 3 };
+            let layout = DashboardLayout { items, columns: 5 };
 
             html! {
                 <div class="app-container">
