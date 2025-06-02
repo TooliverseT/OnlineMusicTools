@@ -1333,6 +1333,42 @@ impl Component for PitchAnalyzer {
                             onended.forget();
                             onloadedmetadata.forget();
                             
+                            // 오디오 요소에 고유 ID 부여 (추적 및 선택 가능하도록)
+                            audio_element.set_id("pitch-analyzer-audio");
+                            
+                            // 오디오 요소를 DOM에 추가 (숨겨진 컨테이너에)
+                            if let Some(document) = web_sys::window().unwrap().document() {
+                                // 오디오 컨테이너가 있는지 확인하고 없으면 생성
+                                let container_id = "pitch-analyzer-audio-container";
+                                if document.get_element_by_id(container_id).is_none() {
+                                    if let Ok(container) = document.create_element("div") {
+                                        // 컨테이너 설정
+                                        container.set_id(container_id);
+                                        // 화면에 표시되지 않도록 스타일 설정
+                                        if let Ok(_) = container.set_attribute("style", "display: none; position: absolute; width: 0; height: 0;") {
+                                            // 문서에 추가
+                                            if let Some(body) = document.body() {
+                                                let _ = body.append_child(&container);
+                                                web_sys::console::log_1(&"오디오 컨테이너 DOM에 추가됨".into());
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // 기존 오디오 요소가 있으면 제거
+                                if let Some(old_audio) = document.get_element_by_id("pitch-analyzer-audio") {
+                                    if let Some(parent) = old_audio.parent_node() {
+                                        let _ = parent.remove_child(&old_audio);
+                                    }
+                                }
+                                
+                                // 새 오디오 요소를 컨테이너에 추가
+                                if let Some(container) = document.get_element_by_id(container_id) {
+                                    let _ = container.append_child(&audio_element);
+                                    web_sys::console::log_1(&"오디오 요소 DOM에 추가됨".into());
+                                }
+                            }
+                            
                             self.audio_element = Some(audio_element);
                             
                             // 녹음 데이터 초기화 - 메모리 누수 방지
@@ -2133,6 +2169,19 @@ impl Component for PitchAnalyzer {
                 self.monitor_active = false;
                 self.speaker_node = None;
                 self.recorder = None;
+                
+                // DOM에서 오디오 요소 제거
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        if let Some(audio_element) = document.get_element_by_id("pitch-analyzer-audio") {
+                            if let Some(parent) = audio_element.parent_node() {
+                                let _ = parent.remove_child(&audio_element);
+                                web_sys::console::log_1(&"DOM에서 오디오 요소 제거됨".into());
+                            }
+                        }
+                    }
+                }
+                
                 self.recorded_audio_url = None;
                 self.audio_element = None;
                 self.playback_time = 0.0;

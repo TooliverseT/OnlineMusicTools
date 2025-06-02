@@ -65,6 +65,21 @@ pub fn main_layout() -> Html {
                 let window = web_sys::window().expect("window를 찾을 수 없습니다");
                 let document = window.document().expect("document를 찾을 수 없습니다");
                 
+                // PitchAnalyzer 오디오 요소를 ID로 직접 찾아서 일시정지
+                if let Some(audio_element) = document.get_element_by_id("pitch-analyzer-audio") {
+                    if let Ok(audio) = audio_element.dyn_into::<web_sys::HtmlAudioElement>() {
+                        // 오디오가 재생 중인지 확인
+                        if !audio.paused() && !audio.ended() {
+                            // 일시정지 시도
+                            if let Err(err) = audio.pause() {
+                                web_sys::console::error_1(&format!("오디오 일시정지 실패: {:?}", err).into());
+                            } else {
+                                web_sys::console::log_1(&"라우트 변경 시 오디오 일시정지됨".into());
+                            }
+                        }
+                    }
+                }
+                
                 // 페이지 이동 시 PitchAnalyzer 전체 상태 초기화를 위한 이벤트 발생
                 let reset_event = web_sys::Event::new("resetPitchAnalyzer").unwrap();
                 document.dispatch_event(&reset_event).unwrap();
