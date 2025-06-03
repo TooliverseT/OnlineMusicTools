@@ -85,13 +85,32 @@ pub fn amplitude_visualizer(props: &AmplitudeVisualizerProps) -> Html {
                         if !amplitude_data.is_empty() {
                             // 막대 그래프 형태로 시각화 (고정)
                             let bar_width = width / amplitude_data.len() as f64;
-                            let max_amp = amplitude_data.iter().fold(0.1f32, |a, b| a.max(b.abs()));
+                            
+                            // 최대 진폭값 계산 개선 - 더 안정적인 기본값 사용 및 이상치 처리
+                            let max_amp = {
+                                let calculated_max = amplitude_data.iter().fold(0.0f32, |a, b| a.max(b.abs()));
+                                
+                                // 최소 임계값 설정으로 과도한 정규화 방지
+                                // 첫 프레임에서 매우 작은 값이 들어올 경우 0.2를 기본값으로 사용
+                                if calculated_max < 0.001 {
+                                    0.2f32 // 안정적인 기본값
+                                } else if calculated_max > 1.0 {
+                                    // 비정상적으로 큰 값이 들어오는 경우 제한
+                                    1.0f32
+                                } else {
+                                    calculated_max
+                                }
+                            };
                             
                             ctx.set_fill_style(&primary_color.into());
                             
                             for (i, &amp) in amplitude_data.iter().enumerate() {
                                 let normalized_amp = (amp.abs() / max_amp) as f64;
-                                let bar_height = normalized_amp * height / 2.0;
+                                
+                                // 정규화된 값에 상한선 적용
+                                let capped_amp = normalized_amp.min(0.95);
+                                
+                                let bar_height = capped_amp * height / 2.0;
                                 let x = i as f64 * bar_width;
                                 let y = height / 2.0 - bar_height;
                                 
@@ -119,8 +138,17 @@ pub fn amplitude_visualizer(props: &AmplitudeVisualizerProps) -> Html {
                                 // 각 시간 지점에서의 진폭 데이터 배열에서 RMS 값 계산
                                 let rms = (amp_data.iter().map(|&x| x * x).sum::<f32>() / amp_data.len() as f32).sqrt();
                                 
-                                // RMS 값으로 막대 그래프 그리기
-                                let bar_height = (rms * height as f32) as f64;
+                                // RMS 값에 대한 안정화 처리
+                                let stabilized_rms = if rms < 0.001 {
+                                    0.001 // 최소값 설정
+                                } else if rms > 1.0 {
+                                    1.0 // 최대값 제한
+                                } else {
+                                    rms
+                                };
+                                
+                                // 안정화된 RMS 값으로 막대 그래프 그리기
+                                let bar_height = (stabilized_rms * height as f32 * 0.9) as f64; // 90%로 제한
                                 let x = i as f64 * bar_width;
                                 let y = height - bar_height;
                                 
