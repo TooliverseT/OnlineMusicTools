@@ -1,5 +1,4 @@
 use crate::routes::Route;
-use std::collections::HashMap;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -13,6 +12,8 @@ pub struct DashboardItem {
     pub route: Option<Route>, // 상세 페이지 라우트
     #[prop_or(false)]
     pub show_link: bool, // 링크 버튼 표시 여부
+    #[prop_or(1.0)]
+    pub aspect_ratio: f32, // 가로 세로 비율 (너비/높이)
 }
 
 /// 대시보드 레이아웃 속성을 정의하는 구조체
@@ -43,8 +44,8 @@ pub fn dashboard(props: &DashboardProps) -> Html {
             {
                 items.iter().map(|item| {
                     let item_style = format!(
-                        "--item-width: {}; --item-height: {};",
-                        item.width, item.height
+                        "--item-width: {}; --item-height: {}; --item-aspect-ratio: {};",
+                        item.width, item.height, item.aspect_ratio
                     );
 
                     html! {
@@ -53,7 +54,7 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                             class="dashboard-item"
                             style={item_style}
                         >
-                            <div class="dashboard-item-content">
+                            <div class="dashboard-item-content" style="position: relative; width: 100%; height: 100%;">
                                 { item.component.clone() }
                                 {
                                     // 링크 표시 여부에 따라 링크 아이콘 추가

@@ -1,10 +1,8 @@
 use js_sys::Date;
-use log::info;
 use plotters::prelude::*;
 use plotters_canvas::CanvasBackend;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::f64::consts::LOG10_E;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, MouseEvent};

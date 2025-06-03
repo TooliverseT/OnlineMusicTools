@@ -1,5 +1,4 @@
 use web_sys::HtmlCanvasElement;
-use web_sys::HtmlInputElement;
 use wasm_bindgen::JsCast;
 use std::collections::VecDeque;
 use yew::prelude::*;

@@ -19,6 +19,8 @@ pub enum Route {
     PitchPlot,
     #[at("/amplitude-visualizer")]
     AmplitudeVisualizer,
+    #[at("/metronome")]
+    Metronome,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -102,6 +104,7 @@ pub fn main_layout() -> Html {
         Route::PitchControls => html! { <PitchControlsDetail /> },
         Route::PitchPlot => html! { <PitchPlotDetail /> },
         Route::AmplitudeVisualizer => html! { <AmplitudeVisualizerDetail /> },
+        Route::Metronome => html! { <MetronomeDetail /> },
         Route::NotFound => html! { <NotFound /> },
     };
 
@@ -193,6 +196,29 @@ pub fn amplitude_visualizer_detail() -> Html {
                     <p>{"마이크를 활성화하고 소리를 입력하면 시간에 따른 소리의 크기 변화를 확인할 수 있습니다."}</p>
                     <p>{"볼륨 레벨 모니터링, 소음 분석, 음성 패턴 분석 등에 활용할 수 있습니다."}</p>
                     <p>{"차트 설정을 조절하여 표시되는 시간 범위를 변경하거나 자동 스크롤을 켜고 끌 수 있습니다."}</p>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[function_component(MetronomeDetail)]
+pub fn metronome_detail() -> Html {
+    html! {
+        <div class="detail-page">
+            <div class="back-link">
+                <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
+            </div>
+            <div class="content full-width">
+                <h2>{"메트로놈"}</h2>
+                <div class="analyzer-container">
+                    <PitchAnalyzer show_links={Some(false)} />
+                </div>
+                <div class="description">
+                    <h3>{"메트로놈 사용법"}</h3>
+                    <p>{"메트로놈은 음악의 박자를 측정하는 도구입니다."}</p>
+                    <p>{"마이크를 활성화하고 음악을 재생하면 박자를 확인할 수 있습니다."}</p>
+                    <p>{"음악 연습, 발성 훈련, 음악 분석 등에 활용해보세요."}</p>
                 </div>
             </div>
         </div>

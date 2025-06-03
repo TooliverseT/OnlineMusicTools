@@ -112,6 +112,8 @@ button.active {
     display: flex;
     flex-direction: column;
     border: 1px solid #11282f;
+    /* 가로세로 비율 유지를 위한 스타일 */
+    aspect-ratio: var(--item-aspect-ratio, 16/9);
 }
 
 .dashboard-item:hover {
@@ -145,10 +147,11 @@ button.active {
 }
 
 .dashboard-item-content {
-    padding: 20px;
     flex: 1;
     overflow: none;
     position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 /* 대시보드 아이템 링크 스타일 */
@@ -546,4 +549,200 @@ canvas {
     font-size: 10px;
     min-width: 35px;
 }
+}
+
+/* 메트로놈 컴포넌트 스타일 */
+.metronome-container {
+    display: flex;
+    flex-direction: column;
+    background-color: #2a2a2a;
+    color: white;
+    border-radius: 2px;
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+    font-family: 'Lexend', 'Segoe UI', sans-serif;
+}
+
+.metronome-compact-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 10px;
+}
+
+.metronome-controls-top {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.bpm-control-compact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.metronome-bpm-btn {
+    background-color: #444;
+    border: none;
+    color: white;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.metronome-bpm-btn:hover {
+    background-color: #555;
+}
+
+.metronome-bpm-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.bpm-display-compact {
+    display: flex;
+    align-items: center;
+    font-size: 16px;
+}
+
+.note-icon {
+    font-size: 20px;
+    color: #9EF5CF;
+}
+
+.equals {
+    margin: 0 5px;
+}
+
+.bpm-value-input {
+    width: 70px;
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    text-align: center;
+    font-family: inherit;
+}
+
+.bpm-value-input:focus {
+    outline: none;
+}
+
+.bpm-label {
+    margin-left: 5px;
+    font-size: 14px;
+    color: #aaa;
+}
+
+.sound-toggle {
+    background: none;
+    border: none;
+    color: #9EF5CF;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 5px;
+}
+
+.metronome-display-compact {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.metronome-controls-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.metronome-settings-compact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.time-signature-controls select,
+.note-unit-controls select {
+    background-color: #444;
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.time-signature-controls select:focus,
+.note-unit-controls select:focus {
+    outline: 2px solid #9EF5CF;
+}
+
+.play-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background-color: #9EF5CF;
+    color: #2a2a2a;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    padding: unset;
+}
+
+.play-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 10px rgba(158, 245, 207, 0.5);
+}
+
+.play-btn.play {
+    padding-left: 2px;
+}
+
+.play-btn.stop {
+    background-color: #ff8c8c;
+}
+
+.tempo-indicator-compact {
+    text-align: center;
+    margin-top: 5px;
+    font-size: 14px;
+    font-style: italic;
+    color: #9EF5CF;
+}
+
+/* 모바일 대응 */
+@media (max-width: 768px) {
+    .metronome-controls {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .control-group {
+        width: 80%;
+    }
+}
+
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox  */
+input[type='number'] {
+  -moz-appearance: textfield;
 }
