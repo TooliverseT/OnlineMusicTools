@@ -53,22 +53,22 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                             class="dashboard-item"
                             style={item_style}
                         >
-                            {
-                                // 링크 표시 여부에 따라 상단 링크 버튼 추가
-                                if item.show_link && item.route.is_some() {
-                                    html! {
-                                        <div class="dashboard-item-header">
-                                            <Link<Route> to={item.route.clone().unwrap()}>
-                                                { format!("🔗 {} 상세보기", item.id) }
-                                            </Link<Route>>
-                                        </div>
-                                    }
-                                } else {
-                                    html! {}
-                                }
-                            }
                             <div class="dashboard-item-content">
                                 { item.component.clone() }
+                                {
+                                    // 링크 표시 여부에 따라 링크 아이콘 추가
+                                    if item.show_link && item.route.is_some() {
+                                        html! {
+                                            <div class="dashboard-item-link">
+                                                <Link<Route> to={item.route.clone().unwrap()}>
+                                                    { "🔗" }
+                                                </Link<Route>>
+                                            </div>
+                                        }
+                                    } else {
+                                        html! {}
+                                    }
+                                }
                             </div>
                         </div>
                     }

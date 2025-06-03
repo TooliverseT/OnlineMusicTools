@@ -148,6 +148,35 @@ button.active {
     padding: 20px;
     flex: 1;
     overflow: none;
+    position: relative;
+}
+
+/* 대시보드 아이템 링크 스타일 */
+.dashboard-item-link {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+}
+
+.dashboard-item-link a {
+    text-decoration: none;
+    color: rgba(213, 209, 167, 0.6);
+    font-size: 1.2rem;
+    background-color: rgba(26, 46, 53, 0.7);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.dashboard-item-link a:hover {
+    color: rgba(213, 209, 167, 1);
+    background-color: rgba(26, 46, 53, 0.9);
+    transform: scale(1.1);
 }
 
 /* 카드 컴포넌트 스타일 */
