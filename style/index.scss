@@ -746,3 +746,47 @@ input::-webkit-inner-spin-button {
 input[type='number'] {
   -moz-appearance: textfield;
 }
+
+/* 스케일 제너레이터 스타일 */
+.scale-intervals-container {
+    display: grid;
+    grid-template-columns: 1fr 0.5fr;
+    gap: 3px;
+}
+
+.scale-intervals-scroll {
+  height: 100px;
+  overflow-y: auto;
+  border: 1px solid #11282f;
+  background-color: #16272d;
+  border-radius: 2px;
+  padding: 10px;
+}
+
+.interval-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 5px;
+}
+
+.interval-item:last-child {
+  margin-bottom: 0;
+}
+
+.add-interval {
+//   height: 28px;
+    height: 100%;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.remove-interval {
+  padding: 0 8px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

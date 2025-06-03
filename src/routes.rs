@@ -21,6 +21,8 @@ pub enum Route {
     AmplitudeVisualizer,
     #[at("/metronome")]
     Metronome,
+    #[at("/scale-generator")]
+    ScaleGenerator,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -105,6 +107,7 @@ pub fn main_layout() -> Html {
         Route::PitchPlot => html! { <PitchPlotDetail /> },
         Route::AmplitudeVisualizer => html! { <AmplitudeVisualizerDetail /> },
         Route::Metronome => html! { <MetronomeDetail /> },
+        Route::ScaleGenerator => html! { <ScaleGeneratorDetail /> },
         Route::NotFound => html! { <NotFound /> },
     };
 
@@ -219,6 +222,29 @@ pub fn metronome_detail() -> Html {
                     <p>{"메트로놈은 음악의 박자를 측정하는 도구입니다."}</p>
                     <p>{"마이크를 활성화하고 음악을 재생하면 박자를 확인할 수 있습니다."}</p>
                     <p>{"음악 연습, 발성 훈련, 음악 분석 등에 활용해보세요."}</p>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[function_component(ScaleGeneratorDetail)]
+pub fn scale_generator_detail() -> Html {
+    html! {
+        <div class="detail-page">
+            <div class="back-link">
+                <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
+            </div>
+            <div class="content full-width">
+                <h2>{"스케일 생성기"}</h2>
+                <div class="analyzer-container">
+                    <crate::tools::scale_generator::ScaleGenerator />
+                </div>
+                <div class="description">
+                    <h3>{"스케일 생성기 사용법"}</h3>
+                    <p>{"이 스케일 생성기를 사용하여 다양한 음악 스케일을 생성하고 연습할 수 있습니다."}</p>
+                    <p>{"시작 근음과 종료 근음을 설정하고, 스케일 내 음 간격과 음정을 지정하여 연습에 활용하세요."}</p>
+                    <p>{"상행/하행 옵션을 통해 다양한 방식의 스케일 연습이 가능합니다."}</p>
                 </div>
             </div>
         </div>
