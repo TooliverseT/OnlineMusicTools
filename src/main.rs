@@ -4,7 +4,6 @@ use gloo::events::EventListener;
 use js_sys::{Object};
 use log::info;
 use std::collections::VecDeque;
-use std::f64::consts::PI;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
@@ -18,11 +17,13 @@ use yew_router::prelude::*;
 mod tools {
     pub mod pitch_plot;
     pub mod amplitude_visualizer;
+    pub mod metronome;
 }
 
 // tools 모듈 컴포넌트 import
 use crate::tools::pitch_plot::PitchPlot;
 use crate::tools::amplitude_visualizer::AmplitudeVisualizer;
+use crate::tools::metronome::Metronome;
 
 mod dashboard;
 mod routes;
@@ -2265,6 +2266,11 @@ impl Component for PitchAnalyzer {
                 history={Some(self.amplitude_history.clone())}
             />
         };
+        
+        // 메트로놈 컴포넌트
+        let metronome = html! {
+            <Metronome />
+        };
 
         // show_links 속성을 확인하여 dashboard 스타일 또는 직접 렌더링 결정
         if ctx.props().show_links.unwrap_or(true) {
@@ -2277,6 +2283,7 @@ impl Component for PitchAnalyzer {
                     height: 3,
                     route: Some(Route::PitchPlot),
                     show_link: self.show_links,
+                    aspect_ratio: 16.0/9.0, // 16:9 비율
                 },
                 DashboardItem {
                     id: "amplitude-visualizer".to_string(),
@@ -2285,10 +2292,20 @@ impl Component for PitchAnalyzer {
                     height: 1,
                     route: Some(Route::AmplitudeVisualizer),
                     show_link: self.show_links,
+                    aspect_ratio: 2.0, // 정사각형 비율
+                },
+                DashboardItem {
+                    id: "metronome".to_string(),
+                    component: metronome,
+                    width: 1,
+                    height: 1,
+                    route: Some(Route::Metronome),
+                    show_link: self.show_links,
+                    aspect_ratio: 16.0/9.0, // 2:1 가로 직사각형 비율
                 }
             ];
 
-            let layout = DashboardLayout { items, columns: 5 };
+            let layout = DashboardLayout { items, columns: 4 };
 
             html! {
                 <div class="app-container">
@@ -2302,6 +2319,8 @@ impl Component for PitchAnalyzer {
                 if let Some(location) = window.location().pathname().ok() {
                     if location.contains("amplitude") {
                         "amplitude"
+                    } else if location.contains("metronome") {
+                        "metronome"
                     } else {
                         "pitch"
                     }
@@ -2317,6 +2336,8 @@ impl Component for PitchAnalyzer {
                     {
                         if current_route == "amplitude" {
                             amplitude_visualizer
+                        } else if current_route == "metronome" {
+                            metronome
                         } else {
                             pitch_plot
                         }
