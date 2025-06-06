@@ -157,18 +157,18 @@ button.active {
 /* 대시보드 아이템 링크 스타일 */
 .dashboard-item-link {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 8px;
+    right: 8px;
     z-index: 10;
 }
 
 .dashboard-item-link a {
     text-decoration: none;
-    color: rgba(213, 209, 167, 0.6);
-    font-size: 1.2rem;
-    background-color: rgba(26, 46, 53, 0.7);
-    width: 30px;
-    height: 30px;
+    color: rgba(213, 209, 167, 0.9);
+    font-size: 0.6rem;
+    background-color: rgba(26, 46, 53, 0.8);
+    width: 15px;
+    height: 15px;
     display: flex;
     align-items: center;
     justify-content: center;
