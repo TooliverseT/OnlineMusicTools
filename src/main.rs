@@ -19,6 +19,7 @@ mod tools {
     pub mod amplitude_visualizer;
     pub mod metronome;
     pub mod scale_generator;
+    pub mod piano;
 }
 
 // tools 모듈 컴포넌트 import
@@ -26,6 +27,7 @@ use crate::tools::pitch_plot::PitchPlot;
 use crate::tools::amplitude_visualizer::AmplitudeVisualizer;
 use crate::tools::metronome::Metronome;
 use crate::tools::scale_generator::ScaleGenerator;
+use crate::tools::piano::Piano;
 
 mod dashboard;
 mod routes;
@@ -2279,6 +2281,11 @@ impl Component for PitchAnalyzer {
             <ScaleGenerator />
         };
 
+        // 피아노 컴포넌트
+        let piano = html! {
+            <Piano />
+        };
+
         // show_links 속성을 확인하여 dashboard 스타일 또는 직접 렌더링 결정
         if ctx.props().show_links.unwrap_or(true) {
             // 대시보드 레이아웃 구성 (메인 페이지)
@@ -2323,6 +2330,16 @@ impl Component for PitchAnalyzer {
                     aspect_ratio: 16.0/9.0,
                     custom_style: None,
                 },
+                DashboardItem {
+                    id: "piano-keyboard".to_string(),
+                    component: piano,
+                    width: 5,
+                    height: 1,
+                    route: Some(Route::PianoKeyboard),
+                    show_link: self.show_links,
+                    aspect_ratio: 26.7/3.0,
+                    custom_style: None,
+                },
             ];
 
             let layout = DashboardLayout { items, columns: 5 };
@@ -2343,6 +2360,8 @@ impl Component for PitchAnalyzer {
                         "metronome"
                     } else if location.contains("scale-generator") {
                         "scale-generator"
+                    } else if location.contains("piano-keyboard") {
+                        "piano-keyboard"
                     } else {
                         "pitch"
                     }
@@ -2362,6 +2381,8 @@ impl Component for PitchAnalyzer {
                             metronome
                         } else if current_route == "scale-generator" {
                             scale_generator
+                        } else if current_route == "piano-keyboard" {
+                            html! { <Piano /> }
                         } else {
                             pitch_plot
                         }

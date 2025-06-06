@@ -35,3 +35,5 @@ An interactive music visualization and training tool to help you master your mus
 ### 스케일 생성기
 
 ### 피아노
+
+* 셋(코드) 저장 및 재생 기능

@@ -23,6 +23,8 @@ pub enum Route {
     Metronome,
     #[at("/scale-generator")]
     ScaleGenerator,
+    #[at("/piano-keyboard")]
+    PianoKeyboard,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -108,6 +110,7 @@ pub fn main_layout() -> Html {
         Route::AmplitudeVisualizer => html! { <AmplitudeVisualizerDetail /> },
         Route::Metronome => html! { <MetronomeDetail /> },
         Route::ScaleGenerator => html! { <ScaleGeneratorDetail /> },
+        Route::PianoKeyboard => html! { <PianoKeyboardDetail /> },
         Route::NotFound => html! { <NotFound /> },
     };
 
@@ -245,6 +248,31 @@ pub fn scale_generator_detail() -> Html {
                     <p>{"이 스케일 생성기를 사용하여 다양한 음악 스케일을 생성하고 연습할 수 있습니다."}</p>
                     <p>{"시작 근음과 종료 근음을 설정하고, 스케일 내 음 간격과 음정을 지정하여 연습에 활용하세요."}</p>
                     <p>{"상행/하행 옵션을 통해 다양한 방식의 스케일 연습이 가능합니다."}</p>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+// 피아노 키보드 상세 페이지 컴포넌트
+#[function_component(PianoKeyboardDetail)]
+pub fn piano_keyboard_detail() -> Html {
+    html! {
+        <div class="detail-page">
+            <div class="back-link">
+                <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
+            </div>
+            <div class="content full-width">
+                <h2>{"피아노 키보드"}</h2>
+                <div class="analyzer-container">
+                    <crate::tools::piano::Piano />
+                </div>
+                <div class="description">
+                    <h3>{"피아노 키보드 사용법"}</h3>
+                    <p>{"이 피아노 키보드를 사용하여 다양한 음을 연주하고 음악 연습을 할 수 있습니다."}</p>
+                    <p>{"각 건반을 클릭하면 해당 음이 재생되며, 여러 건반을 동시에 눌러 화음을 연주할 수 있습니다."}</p>
+                    <p>{"서스테인 버튼을 활성화하면 건반에서 손을 떼도 소리가 계속 유지됩니다."}</p>
+                    <p>{"옥타브 조절 버튼을 사용하여 다양한 음역대의 건반을 표시할 수 있습니다."}</p>
                 </div>
             </div>
         </div>
