@@ -794,6 +794,20 @@ impl Component for PianoKeyboard {
                                                 style="flex: 1;"
                                             >
                                                 <span class="key-label">{key.full_name()}</span>
+                                                {
+                                                    // 키보드 입력이 활성화된 경우 키보드 키 표시
+                                                    if self.keyboard_input_enabled {
+                                                        if let Some(keyboard_key) = self.find_keyboard_key_for_piano(key) {
+                                                            html! {
+                                                                <span class="keyboard-key-label">{keyboard_key}</span>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    } else {
+                                                        html! {}
+                                                    }
+                                                }
                                             </div>
                                         }
                                     }).collect::<Html>()
@@ -905,6 +919,20 @@ impl Component for PianoKeyboard {
                                                 title={key.full_name()}
                                             >
                                                 <span class="key-label">{key.full_name()}</span>
+                                                {
+                                                    // 키보드 입력이 활성화된 경우 키보드 키 표시
+                                                    if self.keyboard_input_enabled {
+                                                        if let Some(keyboard_key) = self.find_keyboard_key_for_piano(key) {
+                                                            html! {
+                                                                <span class="keyboard-key-label black">{keyboard_key}</span>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    } else {
+                                                        html! {}
+                                                    }
+                                                }
                                             </div>
                                         }
                                     }).collect::<Html>()
@@ -1201,6 +1229,30 @@ impl PianoKeyboard {
         } else {
             false
         }
+    }
+
+    // 피아노 키에 매핑된 키보드 키 찾기
+    fn find_keyboard_key_for_piano(&self, piano_key: &PianoKey) -> Option<String> {
+        // 매핑 정보 찾기
+        for mapping in &self.key_mappings {
+            // 왼손/오른손에 따라 옥타브 결정
+            let octave = if mapping.is_left_hand {
+                self.left_hand_octave + mapping.octave_offset
+            } else {
+                self.right_hand_octave + mapping.octave_offset
+            };
+            
+            // 해당 노트와 옥타브를 가진 매핑 찾기
+            if mapping.piano_note == piano_key.name && octave == piano_key.octave {
+                // 스페이스바인 경우 "Space"로 표시
+                if mapping.keyboard_key == " " {
+                    return Some("Space".to_string());
+                }
+                return Some(mapping.keyboard_key.clone());
+            }
+        }
+        
+        None
     }
 }
 
