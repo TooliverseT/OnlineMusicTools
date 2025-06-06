@@ -172,8 +172,8 @@ pub fn amplitude_visualizer(props: &AmplitudeVisualizerProps) -> Html {
     // HTML 렌더링
     html! {
         <div class="amplitude-visualizer">
-            <div class="canvas-container">
-                <canvas ref={canvas_ref} width="800" height="400" />
+            <div class="canvas-container" style="aspect-ratio: 16/9; width: 100%; height: auto;">
+                <canvas ref={canvas_ref} width="800" height="450" />
             </div>
         </div>
     }

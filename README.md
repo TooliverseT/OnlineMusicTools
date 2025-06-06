@@ -10,6 +10,10 @@ An interactive music visualization and training tool to help you master your mus
 
 * 반응형
 * 모바일 모드(좌우 스크롤로 선택)
+* 영어로 변경
+* 전체 스타일 통합 및 정리
+* 릴리즈 형태로 변경
+* 상세페이지 링크 위치 또는 크기 변경
 
 ### 제어반
 
@@ -30,11 +34,4 @@ An interactive music visualization and training tool to help you master your mus
 
 ### 스케일 생성기
 
-* ui 수정
-* C8 까지만 D8, B8 등은 안됨.
-
 ### 피아노
-
-### 피치 점수
-
-### 상세 페이지

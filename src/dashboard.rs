@@ -14,6 +14,8 @@ pub struct DashboardItem {
     pub show_link: bool, // 링크 버튼 표시 여부
     #[prop_or(1.0)]
     pub aspect_ratio: f32, // 가로 세로 비율 (너비/높이)
+    #[prop_or(None)]
+    pub custom_style: Option<String>, // 커스텀 CSS 스타일
 }
 
 /// 대시보드 레이아웃 속성을 정의하는 구조체
@@ -43,10 +45,17 @@ pub fn dashboard(props: &DashboardProps) -> Html {
         <div class="dashboard" style={dashboard_style}>
             {
                 items.iter().map(|item| {
-                    let item_style = format!(
+                    // 기본 스타일에 커스텀 스타일 추가
+                    let mut item_style = format!(
                         "--item-width: {}; --item-height: {}; --item-aspect-ratio: {};",
                         item.width, item.height, item.aspect_ratio
                     );
+                    
+                    // 커스텀 스타일이 있으면 추가
+                    if let Some(custom) = &item.custom_style {
+                        item_style.push_str(" ");
+                        item_style.push_str(custom);
+                    }
 
                     html! {
                         <div

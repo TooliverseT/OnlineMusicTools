@@ -2290,7 +2290,8 @@ impl Component for PitchAnalyzer {
                     height: 3,
                     route: Some(Route::PitchPlot),
                     show_link: self.show_links,
-                    aspect_ratio: 16.0/9.0, // 16:9 비율
+                    aspect_ratio: 16.0/9.0,
+                    custom_style: Some("height: 100%; width: 100%;".to_string()),
                 },
                 DashboardItem {
                     id: "amplitude-visualizer".to_string(),
@@ -2299,16 +2300,8 @@ impl Component for PitchAnalyzer {
                     height: 1,
                     route: Some(Route::AmplitudeVisualizer),
                     show_link: self.show_links,
-                    aspect_ratio: 2.0, // 정사각형 비율
-                },
-                DashboardItem {
-                    id: "scale-generator".to_string(),
-                    component: scale_generator,
-                    width: 1,
-                    height: 3,
-                    route: Some(Route::ScaleGenerator),
-                    show_link: self.show_links,
-                    aspect_ratio: 5.0/9.0, // 정사각형 비율
+                    aspect_ratio: 16.0/9.0,
+                    custom_style: None,
                 },
                 DashboardItem {
                     id: "metronome".to_string(),
@@ -2317,8 +2310,19 @@ impl Component for PitchAnalyzer {
                     height: 1,
                     route: Some(Route::Metronome),
                     show_link: self.show_links,
-                    aspect_ratio: 16.0/9.0, // 2:1 가로 직사각형 비율
-                }
+                    aspect_ratio: 16.0/9.0,
+                    custom_style: None,
+                },
+                DashboardItem {
+                    id: "scale-generator".to_string(),
+                    component: scale_generator,
+                    width: 2,
+                    height: 2,
+                    route: Some(Route::ScaleGenerator),
+                    show_link: self.show_links,
+                    aspect_ratio: 16.0/9.0,
+                    custom_style: None,
+                },
             ];
 
             let layout = DashboardLayout { items, columns: 5 };

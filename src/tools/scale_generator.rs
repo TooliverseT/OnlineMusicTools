@@ -132,6 +132,7 @@ pub enum ScaleGeneratorMsg {
     Stop,                       // 정지
     PlayNextNote,               // 다음 음 재생
     InitAudioContext,           // 오디오 컨텍스트 초기화
+    ClearIntervals,             // 인터벌 초기화 (근음만 남김)
 }
 
 // 스케일 생성기 컴포넌트
@@ -405,6 +406,11 @@ impl Component for ScaleGenerator {
                 }
                 false
             }
+            ScaleGeneratorMsg::ClearIntervals => {
+                self.intervals.clear();
+                self.intervals.push("1".to_string());
+                true
+            }
         }
     }
 
@@ -463,132 +469,253 @@ impl Component for ScaleGenerator {
         html! {
             <div class="scale-generator">
                 <div class="generator-section">
-                    <div class="note-settings">
-                        <div class="setting-group">
-                            <label>{"시작 근음:"}</label>
+                    <div class="generator-layout">
+                        <div class="left-column">
+                            <div class="note-settings">
+                                <div class="note-settings-row">
+                                    <div class="note-setting-group">
+                                        <div class="note-setting-label">{"시작 근음:"}</div>
+                                        <div class="note-setting-controls">
+                                            <select
+                                                value={self.start_note.name.clone()}
+                                                onchange={ctx.link().callback(|e: Event| {
+                                                    let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
+                                                    let name = select.value();
+                                                    
+                                                    // 음에 따른 기본 옥타브 설정
+                                                    let default_octave = match name.as_str() {
+                                                        "A" | "A#" | "B" => 0,   // A, A#, B는 기본 옥타브 0
+                                                        "C" => 1,               // C는 기본 옥타브 1
+                                                        _ => 1,                 // 나머지는 기본 옥타브 1
+                                                    };
+                                                    
+                                                    ScaleGeneratorMsg::SetStartNote(name, default_octave)
+                                                })}
+                                            >
+                                                {
+                                                    notes.iter().map(|note| {
+                                                        html! {
+                                                            <option value={note.to_string()} selected={&self.start_note.name == note}>
+                                                                {note}
+                                                            </option>
+                                                        }
+                                                    }).collect::<Html>()
+                                                }
+                                            </select>
+                                            
+                                            <select
+                                                value={self.start_note.octave.to_string()}
+                                                onchange={
+                                                    let name = self.start_note.name.clone();
+                                                    ctx.link().callback(move |e: Event| {
+                                                        let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
+                                                        let octave = select.value().parse::<i32>().unwrap_or(4);
+                                                        ScaleGeneratorMsg::SetStartNote(name.clone(), octave)
+                                                    })
+                                                }
+                                            >
+                                                {
+                                                    start_octaves.iter().map(|&octave| {
+                                                        html! {
+                                                            <option value={octave.to_string()} selected={self.start_note.octave == octave}>
+                                                                {octave}
+                                                            </option>
+                                                        }
+                                                    }).collect::<Html>()
+                                                }
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="note-setting-group">
+                                        <div class="note-setting-label">{"종료 근음:"}</div>
+                                        <div class="note-setting-controls">
+                                            <select
+                                                value={self.end_note.name.clone()}
+                                                onchange={
+                                                    ctx.link().callback(|e: Event| {
+                                                        let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
+                                                        let name = select.value();
+                                                        
+                                                        // 음에 따른 기본 옥타브 설정
+                                                        let default_octave = match name.as_str() {
+                                                            "A" | "A#" | "B" => 0,   // A, A#, B는 기본 옥타브 0
+                                                            "C" => 1,               // C는 기본 옥타브 1
+                                                            _ => 1,                 // 나머지는 기본 옥타브 1
+                                                        };
+                                                        
+                                                        ScaleGeneratorMsg::SetEndNote(name, default_octave)
+                                                    })
+                                                }
+                                            >
+                                                {
+                                                    notes.iter().map(|note| {
+                                                        html! {
+                                                            <option value={note.to_string()} selected={&self.end_note.name == note}>
+                                                                {note}
+                                                            </option>
+                                                        }
+                                                    }).collect::<Html>()
+                                                }
+                                            </select>
+                                            
+                                            <select
+                                                value={self.end_note.octave.to_string()}
+                                                onchange={
+                                                    let name = self.end_note.name.clone();
+                                                    ctx.link().callback(move |e: Event| {
+                                                        let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
+                                                        let octave = select.value().parse::<i32>().unwrap_or(5);
+                                                        ScaleGeneratorMsg::SetEndNote(name.clone(), octave)
+                                                    })
+                                                }
+                                            >
+                                                {
+                                                    end_octaves.iter().map(|&octave| {
+                                                        html! {
+                                                            <option value={octave.to_string()} selected={self.end_note.octave == octave}>
+                                                                {octave}
+                                                            </option>
+                                                        }
+                                                    }).collect::<Html>()
+                                                }
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             
-                            <div class="note-selectors">
-                                <select
-                                    value={self.start_note.name.clone()}
-                                    onchange={ctx.link().callback(|e: Event| {
-                                        let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
-                                        let name = select.value();
-                                        
-                                        // 음에 따른 기본 옥타브 설정
-                                        let default_octave = match name.as_str() {
-                                            "A" | "A#" | "B" => 0,   // A, A#, B는 기본 옥타브 0
-                                            "C" => 1,               // C는 기본 옥타브 1
-                                            _ => 1,                 // 나머지는 기본 옥타브 1
-                                        };
-                                        
-                                        ScaleGeneratorMsg::SetStartNote(name, default_octave)
-                                    })}
-                                >
-                                    {
-                                        notes.iter().map(|note| {
-                                            html! {
-                                                <option value={note.to_string()} selected={&self.start_note.name == note}>
-                                                    {note}
-                                                </option>
-                                            }
-                                        }).collect::<Html>()
-                                    }
-                                </select>
-                                
-                                <select
-                                    value={self.start_note.octave.to_string()}
-                                    onchange={
-                                        let name = self.start_note.name.clone();
-                                        ctx.link().callback(move |e: Event| {
-                                            let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
-                                            let octave = select.value().parse::<i32>().unwrap_or(4);
-                                            ScaleGeneratorMsg::SetStartNote(name.clone(), octave)
-                                        })
-                                    }
-                                >
-                                    {
-                                        start_octaves.iter().map(|&octave| {
-                                            html! {
-                                                <option value={octave.to_string()} selected={self.start_note.octave == octave}>
-                                                    {octave}
-                                                </option>
-                                            }
-                                        }).collect::<Html>()
-                                    }
-                                </select>
+                            <div class="direction-settings">
+                                <div class="direction-label">{"재생 방향:"}</div>
+                                <div class="radio-group">
+                                    <div>
+                                        <input 
+                                            type="radio" 
+                                            id="ascending"
+                                            name="play-direction" 
+                                            checked={self.play_direction == PlayDirection::Ascending}
+                                            onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::Ascending))}
+                                        />
+                                        <label for="ascending">{"상행만"}</label>
+                                    </div>
+                                    
+                                    <div>
+                                        <input 
+                                            type="radio" 
+                                            id="both"
+                                            name="play-direction" 
+                                            checked={self.play_direction == PlayDirection::Both}
+                                            onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::Both))}
+                                        />
+                                        <label for="both">{"상행/하행"}</label>
+                                    </div>
+                                    
+                                    <div>
+                                        <input 
+                                            type="radio" 
+                                            id="both-desc-first"
+                                            name="play-direction" 
+                                            checked={self.play_direction == PlayDirection::BothDescendingFirst}
+                                            onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::BothDescendingFirst))}
+                                        />
+                                        <label for="both-desc-first">{"하행/상행"}</label>
+                                    </div>
+                                    
+                                    <div>
+                                        <input 
+                                            type="radio" 
+                                            id="descending"
+                                            name="play-direction" 
+                                            checked={self.play_direction == PlayDirection::Descending}
+                                            onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::Descending))}
+                                        />
+                                        <label for="descending">{"하행만"}</label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="setting-group">
-                            <label>{"종료 근음:"}</label>
-                            
-                            <div class="note-selectors">
-                                <select
-                                    value={self.end_note.name.clone()}
-                                    onchange={
-                                        ctx.link().callback(|e: Event| {
-                                            let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
-                                            let name = select.value();
-                                            
-                                            // 음에 따른 기본 옥타브 설정
-                                            let default_octave = match name.as_str() {
-                                                "A" | "A#" | "B" => 0,   // A, A#, B는 기본 옥타브 0
-                                                "C" => 1,               // C는 기본 옥타브 1
-                                                _ => 1,                 // 나머지는 기본 옥타브 1
-                                            };
-                                            
-                                            ScaleGeneratorMsg::SetEndNote(name, default_octave)
-                                        })
-                                    }
-                                >
+                        <div class="right-column">
+                            <div class="intervals-container scale-intervals-container">
+                                <div class="intervals-header">
+                                    <div class="intervals-title">{"스케일 인터벌"}</div>
+                                    <div class="interval-buttons">
+                                        <button
+                                            class="clear-intervals"
+                                            title="인터벌 초기화 (근음만 남김)"
+                                            onclick={ctx.link().callback(|_| {
+                                                // 근음만 남기고 모든 인터벌 삭제
+                                                ScaleGeneratorMsg::ClearIntervals
+                                            })}
+                                        >
+                                            {"초기화"}
+                                        </button>
+                                        <button
+                                            class="add-interval"
+                                            title="인터벌 추가"
+                                            onclick={ctx.link().callback(|_| ScaleGeneratorMsg::AddInterval)}
+                                        >
+                                            {"+"}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="intervals-scroll">
                                     {
-                                        notes.iter().map(|note| {
+                                        self.intervals.iter().enumerate().map(|(idx, interval)| {
                                             html! {
-                                                <option value={note.to_string()} selected={&self.end_note.name == note}>
-                                                    {note}
-                                                </option>
+                                                <div class="interval-item">
+                                                    <div class="interval-index">{format!("#{}", idx + 1)}</div>
+                                                    <select
+                                                        class="interval-select"
+                                                        value={interval.clone()}
+                                                        disabled={idx == 0}
+                                                        onchange={ctx.link().callback(move |e: Event| {
+                                                            let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
+                                                            let value = select.value();
+                                                            ScaleGeneratorMsg::SetIntervalValue(idx, value)
+                                                        })}
+                                                    >
+                                                        {
+                                                            interval_options.iter().map(|(value, label)| {
+                                                                html! {
+                                                                    <option value={value.to_string()} selected={interval == *value}>
+                                                                        {label}
+                                                                    </option>
+                                                                }
+                                                            }).collect::<Html>()
+                                                        }
+                                                    </select>
+                                                    
+                                                    {
+                                                        if idx > 0 {
+                                                            html! {
+                                                                <button
+                                                                    class="remove-interval"
+                                                                    title="인터벌 제거"
+                                                                    onclick={ctx.link().callback(move |_| ScaleGeneratorMsg::RemoveInterval(idx))}
+                                                                >
+                                                                    {"×"}
+                                                                </button>
+                                                            }
+                                                        } else {
+                                                            html! {
+                                                                <div class="placeholder-button"></div>
+                                                            }
+                                                        }
+                                                    }
+                                                </div>
                                             }
                                         }).collect::<Html>()
                                     }
-                                </select>
-                                
-                                <select
-                                    value={self.end_note.octave.to_string()}
-                                    onchange={
-                                        let name = self.end_note.name.clone();
-                                        ctx.link().callback(move |e: Event| {
-                                            let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
-                                            let octave = select.value().parse::<i32>().unwrap_or(5);
-                                            ScaleGeneratorMsg::SetEndNote(name.clone(), octave)
-                                        })
-                                    }
-                                >
-                                    {
-                                        end_octaves.iter().map(|&octave| {
-                                            html! {
-                                                <option value={octave.to_string()} selected={self.end_note.octave == octave}>
-                                                    {octave}
-                                                </option>
-                                            }
-                                        }).collect::<Html>()
-                                    }
-                                </select>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <div class="generator-section">
-                    <div class="interval-settings">
-                        <div class="setting-group">
-                            <div class="bpm-display" style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
-                                <label style="font-size: 1.2rem; margin-right: 10px;">{"BPM:"}</label>
-                                <span style="font-size: 1.5rem; font-weight: bold;">{self.bpm}</span>
-                            </div>
-                            
-                            <div class="bpm-buttons" style="display: flex; justify-content: center; gap: 10px;">
+                    
+                    <div class="bottom-controls">
+                        <div class="bpm-controls">
+                            <div class="bpm-buttons left">
                                 <button 
-                                    style="padding: 5px 10px; font-size: 1rem;"
                                     onclick={
                                         let current_bpm = self.bpm;
                                         ctx.link().callback(move |_| {
@@ -597,12 +724,12 @@ impl Component for ScaleGenerator {
                                         })
                                     }
                                     disabled={self.bpm <= 30}
+                                    title="BPM 5 감소"
                                 >
                                     {"- 5"}
                                 </button>
                                 
                                 <button 
-                                    style="padding: 5px 10px; font-size: 1rem;"
                                     onclick={
                                         let current_bpm = self.bpm;
                                         ctx.link().callback(move |_| {
@@ -611,12 +738,19 @@ impl Component for ScaleGenerator {
                                         })
                                     }
                                     disabled={self.bpm <= 30}
+                                    title="BPM 1 감소"
                                 >
                                     {"-"}
                                 </button>
-                                
+                            </div>
+                            
+                            <div class="bpm-value-display">
+                                <span class="bpm-label">{"BPM:"}</span>
+                                <span class="bpm-value">{self.bpm}</span>
+                            </div>
+                            
+                            <div class="bpm-buttons right">
                                 <button 
-                                    style="padding: 5px 10px; font-size: 1rem;"
                                     onclick={
                                         let current_bpm = self.bpm;
                                         ctx.link().callback(move |_| {
@@ -625,12 +759,12 @@ impl Component for ScaleGenerator {
                                         })
                                     }
                                     disabled={self.bpm >= 300}
+                                    title="BPM 1 증가"
                                 >
                                     {"+"}
                                 </button>
                                 
                                 <button 
-                                    style="padding: 5px 10px; font-size: 1rem;"
                                     onclick={
                                         let current_bpm = self.bpm;
                                         ctx.link().callback(move |_| {
@@ -639,150 +773,69 @@ impl Component for ScaleGenerator {
                                         })
                                     }
                                     disabled={self.bpm >= 300}
+                                    title="BPM 5 증가"
                                 >
                                     {"+ 5"}
                                 </button>
                             </div>
                         </div>
-                    </div>
-                </div>
-                
-                <div class="generator-section">
-                    <div class="scale-intervals-container">
-                        <div class="scale-intervals-scroll">
-                            {
-                                self.intervals.iter().enumerate().map(|(idx, interval)| {
-                                    html! {
-                                        <div class="interval-item">
-                                            <select
-                                                value={interval.clone()}
-                                                disabled={idx == 0}
-                                                onchange={ctx.link().callback(move |e: Event| {
-                                                    let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
-                                                    let value = select.value();
-                                                    ScaleGeneratorMsg::SetIntervalValue(idx, value)
-                                                })}
-                                            >
-                                                {
-                                                    interval_options.iter().map(|(value, label)| {
-                                                        html! {
-                                                            <option value={value.to_string()} selected={interval == *value}>
-                                                                {label}
-                                                            </option>
-                                                        }
-                                                    }).collect::<Html>()
-                                                }
-                                            </select>
-                                            
-                                            {
-                                                if idx > 0 {
-                                                    html! {
-                                                        <button
-                                                            class="remove-interval"
-                                                            onclick={ctx.link().callback(move |_| ScaleGeneratorMsg::RemoveInterval(idx))}
-                                                        >
-                                                            {"-"}
-                                                        </button>
-                                                    }
-                                                } else {
-                                                    html! {}
-                                                }
-                                            }
-                                        </div>
-                                    }
-                                }).collect::<Html>()
-                            }
-                        </div>
                         
-                        <button
-                            class="add-interval"
-                            onclick={ctx.link().callback(|_| ScaleGeneratorMsg::AddInterval)}
-                        >
-                            {"+"}
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="generator-section">
-                    <div class="direction-settings">
-                        <div class="radio-group">
-                            <label>
-                                <input 
-                                    type="radio" 
-                                    name="play-direction" 
-                                    checked={self.play_direction == PlayDirection::Ascending}
-                                    onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::Ascending))}
-                                />
-                                {"상행만"}
-                            </label>
-                            
-                            <label>
-                                <input 
-                                    type="radio" 
-                                    name="play-direction" 
-                                    checked={self.play_direction == PlayDirection::Both}
-                                    onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::Both))}
-                                />
-                                {"상행/하행"}
-                            </label>
-                            
-                            <label>
-                                <input 
-                                    type="radio" 
-                                    name="play-direction" 
-                                    checked={self.play_direction == PlayDirection::BothDescendingFirst}
-                                    onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::BothDescendingFirst))}
-                                />
-                                {"하행/상행"}
-                            </label>
-                            
-                            <label>
-                                <input 
-                                    type="radio" 
-                                    name="play-direction" 
-                                    checked={self.play_direction == PlayDirection::Descending}
-                                    onchange={ctx.link().callback(|_| ScaleGeneratorMsg::SetPlayDirection(PlayDirection::Descending))}
-                                />
-                                {"하행만"}
-                            </label>
+                        <div class="current-note-display">
+                            <div class="note-display-item">
+                                {
+                                    if let Some(root_note) = &self.current_root_note {
+                                        html! {
+                                            <>
+                                                <span class="note-label">{"현재 근음:"}</span>
+                                                <span class="note-value">{root_note.full_name()}</span>
+                                            </>
+                                        }
+                                    } else {
+                                        html! {
+                                            <>
+                                                <span class="note-label">{"현재 근음:"}</span>
+                                                <span class="note-value note-waiting">{"대기 중"}</span>
+                                            </>
+                                        }
+                                    }
+                                }
+                            </div>
+                            <div class="note-display-item">
+                                {
+                                    if let Some(playing_note) = &self.current_playing_note {
+                                        html! {
+                                            <>
+                                                <span class="note-label">{"현재 재생 음:"}</span>
+                                                <span class="note-value">{playing_note.full_name()}</span>
+                                            </>
+                                        }
+                                    } else {
+                                        html! {
+                                            <>
+                                                <span class="note-label">{"현재 재생 음:"}</span>
+                                                <span class="note-value note-waiting">{"대기 중"}</span>
+                                            </>
+                                        }
+                                    }
+                                }
+                            </div>
+                        </div>
+                    
+                        <div class="button-group">
+                            <button
+                                class={if self.playback_state == PlaybackState::Playing { "play-button playing" } else { "play-button" }}
+                                onclick={ctx.link().callback(|_| ScaleGeneratorMsg::TogglePlayback)}
+                            >
+                                {
+                                    if self.playback_state == PlaybackState::Playing {
+                                        "■ 정지"
+                                    } else {
+                                        "▶ 재생"
+                                    }
+                                }
+                            </button>
                         </div>
                     </div>
-                </div>
-                
-                <div class="current-note-display">
-                    <p>
-                        {
-                            if let Some(root_note) = &self.current_root_note {
-                                format!("현재 근음: {}", root_note.full_name())
-                            } else {
-                                "현재 근음: -".to_string()
-                            }
-                        }
-                    </p>
-                    <p>
-                        {
-                            if let Some(playing_note) = &self.current_playing_note {
-                                format!("현재 재생 음: {}", playing_note.full_name())
-                            } else {
-                                "현재 재생 음: -".to_string()
-                            }
-                        }
-                    </p>
-                </div>
-                
-                <div class="button-group">
-                    <button
-                        class="play-button"
-                        onclick={ctx.link().callback(|_| ScaleGeneratorMsg::TogglePlayback)}
-                    >
-                        {
-                            if self.playback_state == PlaybackState::Playing {
-                                "■ 정지"
-                            } else {
-                                "▶ 재생"
-                            }
-                        }
-                    </button>
                 </div>
             </div>
         }
