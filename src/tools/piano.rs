@@ -84,6 +84,13 @@ pub enum PianoMsg {
     ResetAllKeys,                   // 모든 키를 리셋
     ForceKeyUpdate,                 // 키 상태 강제 업데이트
     ToggleKeyboardInput,            // 키보드 입력 활성화/비활성화 토글
+    PlaySet(usize),                 // 피아노 세트 재생
+    ReleaseSet(usize),              // 피아노 세트 재생 중지
+    ToggleSetEditMode,              // 세트 수정 모드 토글
+    SelectSetToEdit(usize),         // 수정할 세트 선택
+    ToggleKeyInSet(usize),          // 세트에서 키 토글 (추가/제거)
+    ToggleKeyInSetWithSound(usize),           // 소리와 함께 세트에서 키 토글
+    ClearAllSets,                   // 모든 세트 초기화
 }
 
 // 피아노 컴포넌트
@@ -101,6 +108,9 @@ pub struct PianoKeyboard {
     pressed_keyboard_keys: HashMap<String, bool>, // 현재 눌려있는 키보드 키
     _keyboard_listener: Option<(Closure<dyn FnMut(KeyboardEvent)>, Closure<dyn FnMut(KeyboardEvent)>)>, // 키보드 이벤트 리스너
     keyboard_input_enabled: bool,   // 키보드 입력 활성화 여부
+    piano_sets: Vec<Vec<usize>>,    // 피아노 세트 (키 인덱스의 집합)
+    set_edit_mode: bool,            // 세트 수정 모드 활성화 여부
+    current_edit_set: Option<usize>, // 현재 수정 중인 세트 인덱스
 }
 
 impl Component for PianoKeyboard {
@@ -138,10 +148,10 @@ impl Component for PianoKeyboard {
         let mut pressed_keyboard_keys = HashMap::new();
         
         // 왼손 키 매핑 (C2-C3 기본 옥타브)
-        let left_hand_keys = ["z", "x", "c", "v", "a", "s", "d", "f", "q", "w", "e", "r", "t"];
+        let left_hand_keys = ["z", "x", "c", "v", "a", "s", "d", "f", "w", "e", "r", "t", "y"];
         
         // 오른손 키 매핑 (C4-C5 기본 옥타브)
-        let right_hand_keys = ["n", "m", ",", ".", "j", "k", "l", ";", "u", "i", "o", "p", "["];
+        let right_hand_keys = ["m", ",", ".", "/", "j", "k", "l", ";", "u", "i", "o", "p", "["];
         
         // 초기 매핑 생성
         let left_hand_start_note_idx = 0; // C로 시작
@@ -159,14 +169,36 @@ impl Component for PianoKeyboard {
         // 옥타브 변경 키 매핑
         pressed_keyboard_keys.insert("b".to_string(), false); // 왼손 옥타브 내림
         pressed_keyboard_keys.insert("g".to_string(), false); // 왼손 옥타브 올림
-        pressed_keyboard_keys.insert("h".to_string(), false); // 오른손 옥타브 내림
-        pressed_keyboard_keys.insert("y".to_string(), false); // 오른손 옥타브 올림
-        pressed_keyboard_keys.insert("/".to_string(), false); // UI 범위 한 옥타브 아래로
+        pressed_keyboard_keys.insert("n".to_string(), false); // 오른손 옥타브 내림
+        pressed_keyboard_keys.insert("h".to_string(), false); // 오른손 옥타브 올림
+        pressed_keyboard_keys.insert("q".to_string(), false); // UI 범위 한 옥타브 아래로
         pressed_keyboard_keys.insert("]".to_string(), false); // UI 범위 한 옥타브 위로
         pressed_keyboard_keys.insert(" ".to_string(), false); // 스페이스바 (서스테인)
-        pressed_keyboard_keys.insert("-".to_string(), false); // - (시작 음 낮추기)
-        pressed_keyboard_keys.insert("=".to_string(), false); // + (시작 음 높이기)
+        pressed_keyboard_keys.insert("-".to_string(), false); // - (왼손 시작 음 높이기)
+        pressed_keyboard_keys.insert("=".to_string(), false); // = (오른손 시작 음 높이기)
+        pressed_keyboard_keys.insert("_".to_string(), false); // _ (왼손 시작 음 낮추기)
+        pressed_keyboard_keys.insert("+".to_string(), false); // + (오른손 시작 음 낮추기)
         pressed_keyboard_keys.insert("0".to_string(), false); // 0 (매핑 초기화)
+        pressed_keyboard_keys.insert("~".to_string(), false); // ~ (전체 세트 초기화)
+        
+        // 세트 키 매핑 (1-0)
+        pressed_keyboard_keys.insert("1".to_string(), false); // 1번 세트
+        pressed_keyboard_keys.insert("2".to_string(), false); // 2번 세트
+        pressed_keyboard_keys.insert("3".to_string(), false); // 3번 세트
+        pressed_keyboard_keys.insert("4".to_string(), false); // 4번 세트
+        pressed_keyboard_keys.insert("5".to_string(), false); // 5번 세트
+        pressed_keyboard_keys.insert("6".to_string(), false); // 6번 세트
+        pressed_keyboard_keys.insert("7".to_string(), false); // 7번 세트
+        pressed_keyboard_keys.insert("8".to_string(), false); // 8번 세트
+        pressed_keyboard_keys.insert("9".to_string(), false); // 9번 세트
+        pressed_keyboard_keys.insert("0".to_string(), false); // 10번 세트
+        pressed_keyboard_keys.insert("`".to_string(), false); // 수정 모드 토글
+
+        // 피아노 세트 초기화 (10개의 빈 세트)
+        let mut piano_sets = Vec::new();
+        for _ in 0..10 {
+            piano_sets.push(Vec::new());
+        }
 
         Self {
             keys,
@@ -182,6 +214,9 @@ impl Component for PianoKeyboard {
             pressed_keyboard_keys,
             _keyboard_listener: None,
             keyboard_input_enabled: false,
+            piano_sets,
+            set_edit_mode: false,
+            current_edit_set: None,
         }
     }
 
@@ -331,9 +366,9 @@ impl Component for PianoKeyboard {
                 match key.as_str() {
                     "b" => return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandOctave(-1)),
                     "g" => return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandOctave(1)),
-                    "h" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(-1)),
-                    "y" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(1)),
-                    "/" => return yew::Component::update(self, ctx, PianoMsg::MovePianoUIRange(-1)), // UI 범위를 한 옥타브 아래로
+                    "n" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(-1)),
+                    "h" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(1)),
+                    "q" => return yew::Component::update(self, ctx, PianoMsg::MovePianoUIRange(-1)), // UI 범위를 한 옥타브 아래로
                     "]" => return yew::Component::update(self, ctx, PianoMsg::MovePianoUIRange(1)),  // UI 범위를 한 옥타브 위로
                     " " => {
                         // 스페이스바를 누르면 서스테인 활성화
@@ -346,13 +381,46 @@ impl Component for PianoKeyboard {
                         // 왼손 시작 음 높이기
                         return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandStartNote(1));
                     },
+                    "_" => {
+                        // 왼손 시작 음 낮추기
+                        return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandStartNote(-1));
+                    },
                     "=" => {
                         // 오른손 시작 음 높이기
                         return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandStartNote(1));
                     },
+                    "+" => {
+                        // 오른손 시작 음 낮추기
+                        return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandStartNote(-1));
+                    },
                     "Escape" => {
                         // Escape 키를 누르면 모든 키 리셋
                         return yew::Component::update(self, ctx, PianoMsg::ResetAllKeys);
+                    },
+                    "`" => {
+                        // ` 키를 누르면 수정 모드 토글
+                        return yew::Component::update(self, ctx, PianoMsg::ToggleSetEditMode);
+                    },
+                    "~" => {
+                        // ~ 키를 누르면 모든 세트 초기화
+                        return yew::Component::update(self, ctx, PianoMsg::ClearAllSets);
+                    },
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0" => {
+                        // 1-9, 0 키를 누르면 해당 세트 재생 또는 선택
+                        let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap() - 1 };
+                        
+                        if self.set_edit_mode {
+                            return yew::Component::update(self, ctx, PianoMsg::SelectSetToEdit(set_idx));
+                        } else {
+                            // 이미 눌려있는 키는 무시
+                            if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
+                                if *is_pressed {
+                                    return false;
+                                }
+                                *is_pressed = true;
+                            }
+                            return yew::Component::update(self, ctx, PianoMsg::PlaySet(set_idx));
+                        }
                     },
                     _ => {}
                 }
@@ -366,7 +434,12 @@ impl Component for PianoKeyboard {
                     
                     // 매핑된 피아노 키 찾기
                     if let Some(piano_key_idx) = self.find_piano_key_by_keyboard(&key) {
-                        return yew::Component::update(self, ctx, PianoMsg::KeyPressed(piano_key_idx));
+                        // 수정 모드면 해당 키를 토글하고, 아니면 소리 재생
+                        if self.set_edit_mode && self.current_edit_set.is_some() {
+                            return yew::Component::update(self, ctx, PianoMsg::ToggleKeyInSetWithSound(piano_key_idx));
+                        } else {
+                            return yew::Component::update(self, ctx, PianoMsg::KeyPressed(piano_key_idx));
+                        }
                     }
                 }
                 false
@@ -386,7 +459,7 @@ impl Component for PianoKeyboard {
                         }
                         return false;
                     },
-                    "b" | "g" | "h" | "y" | "/" | "]" | "-" | "=" | "8" => {
+                    "b" | "g" | "n" | "h" | "q" | "]" | "-" | "=" | "_" | "+" | "`" | "~" => {
                         if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
                             *is_pressed = false;
                         }
@@ -398,6 +471,18 @@ impl Component for PianoKeyboard {
                         });
                         timeout.forget();
                         
+                        return false;
+                    },
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0" => {
+                        // 1-9, 0 키를 뗄 때 세트 재생 중지
+                        if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
+                            *is_pressed = false;
+                        }
+                        
+                        if !self.set_edit_mode {
+                            let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap() - 1 };
+                            return yew::Component::update(self, ctx, PianoMsg::ReleaseSet(set_idx));
+                        }
                         return false;
                     },
                     _ => {}
@@ -481,12 +566,26 @@ impl Component for PianoKeyboard {
             PianoMsg::ChangeLeftHandStartNote(delta) => {
                 let old_idx = self.left_hand_start_note_idx;
                 let mut new_idx = self.left_hand_start_note_idx as i32 + delta;
+                let mut octave_change = 0;
+                
+                // 범위를 벗어났을 때 옥타브 변경 처리
                 if new_idx < 0 {
                     new_idx += 12;
+                    octave_change = -1; // 옥타브 다운
                 } else if new_idx >= 12 {
                     new_idx -= 12;
+                    octave_change = 1; // 옥타브 업
                 }
+                
                 self.left_hand_start_note_idx = new_idx as usize;
+                
+                // 옥타브 변경이 필요한 경우 처리
+                if octave_change != 0 {
+                    let new_octave = self.left_hand_octave + octave_change;
+                    if new_octave >= 0 && new_octave <= 7 {
+                        self.left_hand_octave = new_octave;
+                    }
+                }
                 
                 // 영역이 바뀌면 이전 영역에 눌려있던 키들 해제
                 self.release_keys_for_changed_note_idx(ctx, old_idx, self.left_hand_start_note_idx, self.left_hand_octave, true);
@@ -498,12 +597,26 @@ impl Component for PianoKeyboard {
             PianoMsg::ChangeRightHandStartNote(delta) => {
                 let old_idx = self.right_hand_start_note_idx;
                 let mut new_idx = self.right_hand_start_note_idx as i32 + delta;
+                let mut octave_change = 0;
+                
+                // 범위를 벗어났을 때 옥타브 변경 처리
                 if new_idx < 0 {
                     new_idx += 12;
+                    octave_change = -1; // 옥타브 다운
                 } else if new_idx >= 12 {
                     new_idx -= 12;
+                    octave_change = 1; // 옥타브 업
                 }
+                
                 self.right_hand_start_note_idx = new_idx as usize;
+                
+                // 옥타브 변경이 필요한 경우 처리
+                if octave_change != 0 {
+                    let new_octave = self.right_hand_octave + octave_change;
+                    if new_octave >= 0 && new_octave <= 7 {
+                        self.right_hand_octave = new_octave;
+                    }
+                }
                 
                 // 영역이 바뀌면 이전 영역에 눌려있던 키들 해제
                 self.release_keys_for_changed_note_idx(ctx, old_idx, self.right_hand_start_note_idx, self.right_hand_octave, false);
@@ -589,6 +702,150 @@ impl Component for PianoKeyboard {
                 self.keyboard_input_enabled = !self.keyboard_input_enabled;
                 true
             },
+            PianoMsg::PlaySet(set_idx) => {
+                if set_idx < self.piano_sets.len() {
+                    if self.set_edit_mode {
+                        // 수정 모드에서는 세트 선택
+                        return yew::Component::update(self, ctx, PianoMsg::SelectSetToEdit(set_idx));
+                    }
+                    
+                    // 세트에 포함된 모든 키를 동시에 누름
+                    for &key_idx in &self.piano_sets[set_idx] {
+                        if key_idx < self.keys.len() {
+                            self.keys[key_idx].is_pressed = true;
+                            
+                            // 소리 재생 (KeyPressed와 동일한 로직)
+                            let audio = HtmlAudioElement::new_with_src(&self.keys[key_idx].audio_path())
+                                .expect("오디오 요소 생성 실패");
+                            
+                            // 볼륨 설정
+                            audio.set_volume(0.7);
+                            
+                            // 시작 위치 리셋
+                            audio.set_current_time(0.0);
+                            
+                            // 오디오 요소 미리 로드
+                            let _ = audio.load();
+                            
+                            // 기존 키 이름과 다른 고유 ID 생성 (타임스탬프 추가)
+                            let key_name = format!("{}_{}", self.keys[key_idx].full_name(), js_sys::Date::now());
+                            
+                            match audio.play() {
+                                Ok(_) => {
+                                    console::log_1(&format!("피아노 노트 재생: {}", key_name).into());
+                                    self.active_sounds.insert(key_name, audio);
+                                },
+                                Err(err) => {
+                                    console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                                }
+                            }
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            },
+            PianoMsg::ReleaseSet(set_idx) => {
+                if set_idx < self.piano_sets.len() {
+                    // 세트에 포함된 모든 키를 동시에 뗌
+                    for &key_idx in &self.piano_sets[set_idx] {
+                        if key_idx < self.keys.len() {
+                            self.keys[key_idx].is_pressed = false;
+                            
+                            // 서스테인이 꺼져 있으면 1초 후에 소리 정지 (KeyReleased와 동일한 로직)
+                            if !self.sustain {
+                                let key_base_name = self.keys[key_idx].full_name();
+                                
+                                // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                                let sounds_to_stop: Vec<String> = self.active_sounds.keys()
+                                    .filter(|k| k.starts_with(&key_base_name))
+                                    .cloned()
+                                    .collect();
+                                
+                                for key_name in sounds_to_stop {
+                                    let key_name_clone = key_name.clone();
+                                    let link = ctx.link().clone();
+                                    
+                                    // 1초 후에 소리 정지 (서스테인과 비슷하게 약간 더 길게)
+                                    let timeout = Timeout::new(500, move || {
+                                        link.send_message(PianoMsg::StopSound(key_name_clone));
+                                    });
+                                    
+                                    // 타임아웃이 가비지 컬렉션되지 않도록 함
+                                    timeout.forget();
+                                }
+                            }
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            },
+            PianoMsg::ToggleSetEditMode => {
+                self.set_edit_mode = !self.set_edit_mode;
+                
+                // 수정 모드를 끄면 현재 편집 중인 세트도 리셋
+                if !self.set_edit_mode {
+                    self.current_edit_set = None;
+                }
+                
+                true
+            },
+            PianoMsg::SelectSetToEdit(set_idx) => {
+                if set_idx < self.piano_sets.len() {
+                    // 같은 세트를 다시 선택하면 선택 취소
+                    if self.current_edit_set == Some(set_idx) {
+                        self.current_edit_set = None;
+                    } else {
+                        self.current_edit_set = Some(set_idx);
+                    }
+                    true
+                } else {
+                    false
+                }
+            },
+            PianoMsg::ToggleKeyInSet(key_idx) => {
+                if let Some(set_idx) = self.current_edit_set {
+                    if key_idx < self.keys.len() {
+                        // 이미 세트에 있는 키면 제거, 없으면 추가
+                        if let Some(pos) = self.piano_sets[set_idx].iter().position(|&k| k == key_idx) {
+                            self.piano_sets[set_idx].remove(pos);
+                        } else {
+                            self.piano_sets[set_idx].push(key_idx);
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            PianoMsg::ToggleKeyInSetWithSound(key_idx) => {
+                // 먼저 소리 재생
+                let _ = yew::Component::update(self, ctx, PianoMsg::KeyPressed(key_idx));
+                
+                // 키 토글 처리
+                let result = yew::Component::update(self, ctx, PianoMsg::ToggleKeyInSet(key_idx));
+                
+                // 약간의 시간 후에 키를 뗌
+                let link = ctx.link().clone();
+                let timeout = Timeout::new(200, move || {
+                    link.send_message(PianoMsg::KeyReleased(key_idx));
+                });
+                timeout.forget();
+                
+                result
+            },
+            PianoMsg::ClearAllSets => {
+                // 모든 세트 초기화
+                for set in self.piano_sets.iter_mut() {
+                    set.clear();
+                }
+                true
+            },
         }
     }
 
@@ -600,30 +857,57 @@ impl Component for PianoKeyboard {
             // 키 다운 이벤트 핸들러
             let link_down = ctx.link().clone();
             let keydown_callback = Closure::wrap(Box::new(move |event: KeyboardEvent| {
-                // 기본 동작 방지(페이지 스크롤 등)
+                let key = event.key();
+                
+                // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
+                if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
+                    // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
+                    console::log_1(&format!("브라우저 기능키 감지: {}", key).into());
+                    // 단, 피아노 앱에서 사용하는 키는 처리
+                    link_down.send_message(PianoMsg::KeyboardKeyDown(key));
+                    return;
+                }
+                
+                // 그 외 일반 키는 기본 동작 방지(페이지 스크롤 등)
                 event.prevent_default();
                 event.stop_propagation();
                 
-                let key = event.key();
                 console::log_1(&format!("Key down: {}", key).into());
+                
+                // 세트 키(1-9, 0)인 경우 즉시 업데이트 요청하지 않음
+                let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
+                
                 link_down.send_message(PianoMsg::KeyboardKeyDown(key));
                 
-                // 강제로 키 상태 업데이트 요청
-                let link = link_down.clone();
-                let timeout = Timeout::new(10, move || {
-                    link.send_message(PianoMsg::ForceKeyUpdate);
-                });
-                timeout.forget();
+                // 세트 키가 아닌 경우에만 즉시 상태 업데이트 요청
+                if !is_set_key {
+                    // 강제로 키 상태 업데이트 요청
+                    let link = link_down.clone();
+                    let timeout = Timeout::new(10, move || {
+                        link.send_message(PianoMsg::ForceKeyUpdate);
+                    });
+                    timeout.forget();
+                }
             }) as Box<dyn FnMut(KeyboardEvent)>);
             
             // 키 업 이벤트 핸들러
             let link_up = ctx.link().clone();
             let keyup_callback = Closure::wrap(Box::new(move |event: KeyboardEvent| {
-                // 기본 동작 방지
+                let key = event.key();
+                
+                // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
+                if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
+                    // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
+                    console::log_1(&format!("브라우저 기능키 감지(키업): {}", key).into());
+                    // 단, 피아노 앱에서 사용하는 키는 처리
+                    link_up.send_message(PianoMsg::KeyboardKeyUp(key));
+                    return;
+                }
+                
+                // 그 외 일반 키는 기본 동작 방지
                 event.prevent_default();
                 event.stop_propagation();
                 
-                let key = event.key();
                 console::log_1(&format!("Key up: {}", key).into());
                 link_up.send_message(PianoMsg::KeyboardKeyUp(key));
                 
@@ -783,13 +1067,62 @@ impl Component for PianoKeyboard {
                                         html! {
                                             <div 
                                                 class={class_names}
-                                                onmousedown={ctx.link().callback(move |_| PianoMsg::KeyPressed(i))}
-                                                onmouseup={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                onmouseleave={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                onmouseout={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                ontouchstart={ctx.link().callback(move |_| PianoMsg::KeyPressed(i))}
-                                                ontouchend={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                ontouchcancel={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
+                                                onmousedown={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::ToggleKeyInSetWithSound(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyPressed(i))
+                                                    }
+                                                }
+                                                onmouseup={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                onmouseleave={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                onmouseout={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                ontouchstart={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::ToggleKeyInSetWithSound(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyPressed(i))
+                                                    }
+                                                }
+                                                ontouchend={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                ontouchcancel={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
                                                 title={key.full_name()}
                                                 style="flex: 1;"
                                             >
@@ -800,6 +1133,24 @@ impl Component for PianoKeyboard {
                                                         if let Some(keyboard_key) = self.find_keyboard_key_for_piano(key) {
                                                             html! {
                                                                 <span class="keyboard-key-label">{keyboard_key}</span>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    } else {
+                                                        html! {}
+                                                    }
+                                                }
+                                                {
+                                                    // 세트 수정 모드에서 현재 세트에 포함된 키인지 표시
+                                                    if self.set_edit_mode {
+                                                        if let Some(set_idx) = self.current_edit_set {
+                                                            if self.piano_sets[set_idx].contains(&i) {
+                                                                html! {
+                                                                    <span class="set-marker">{"✓"}</span>
+                                                                }
+                                                            } else {
+                                                                html! {}
                                                             }
                                                         } else {
                                                             html! {}
@@ -909,13 +1260,62 @@ impl Component for PianoKeyboard {
                                             <div 
                                                 class={class_names}
                                                 style={format!("top: 0; left: {}%", position)}
-                                                onmousedown={ctx.link().callback(move |_| PianoMsg::KeyPressed(i))}
-                                                onmouseup={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                onmouseleave={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                onmouseout={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                ontouchstart={ctx.link().callback(move |_| PianoMsg::KeyPressed(i))}
-                                                ontouchend={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
-                                                ontouchcancel={ctx.link().callback(move |_| PianoMsg::KeyReleased(i))}
+                                                onmousedown={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::ToggleKeyInSetWithSound(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyPressed(i))
+                                                    }
+                                                }
+                                                onmouseup={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                onmouseleave={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                onmouseout={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                ontouchstart={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::ToggleKeyInSetWithSound(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyPressed(i))
+                                                    }
+                                                }
+                                                ontouchend={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
+                                                ontouchcancel={
+                                                    let i = *index;
+                                                    if self.set_edit_mode && self.current_edit_set.is_some() {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    } else {
+                                                        ctx.link().callback(move |_| PianoMsg::KeyReleased(i))
+                                                    }
+                                                }
                                                 title={key.full_name()}
                                             >
                                                 <span class="key-label">{key.full_name()}</span>
@@ -925,6 +1325,24 @@ impl Component for PianoKeyboard {
                                                         if let Some(keyboard_key) = self.find_keyboard_key_for_piano(key) {
                                                             html! {
                                                                 <span class="keyboard-key-label black">{keyboard_key}</span>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    } else {
+                                                        html! {}
+                                                    }
+                                                }
+                                                {
+                                                    // 세트 수정 모드에서 현재 세트에 포함된 키인지 표시
+                                                    if self.set_edit_mode {
+                                                        if let Some(set_idx) = self.current_edit_set {
+                                                            if self.piano_sets[set_idx].contains(&i) {
+                                                                html! {
+                                                                    <span class="set-marker black">{"✓"}</span>
+                                                                }
+                                                            } else {
+                                                                html! {}
                                                             }
                                                         } else {
                                                             html! {}
@@ -993,6 +1411,50 @@ impl Component for PianoKeyboard {
                                                 {NOTE_NAMES[self.right_hand_start_note_idx]}{self.right_hand_octave}{"-"}{NOTE_NAMES[self.right_hand_start_note_idx]}{self.right_hand_octave+1}
                                             </span>
                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="settings-row piano-sets">
+                                <div class="piano-sets-layout">
+                                    <button 
+                                        class={classes!("edit-mode-button", if self.set_edit_mode { "active" } else { "" })}
+                                        onclick={ctx.link().callback(|_| PianoMsg::ToggleSetEditMode)}
+                                        title={if self.set_edit_mode { "수정 모드 비활성화" } else { "수정 모드 활성화" }}
+                                    >
+                                        {if self.set_edit_mode { "✏️" } else { "✏️" }}
+                                    </button>
+                                    <button 
+                                        class="edit-mode-button"
+                                        onclick={ctx.link().callback(|_| PianoMsg::ClearAllSets)}
+                                        title="모든 세트 초기화 (~ 키)"
+                                    >
+                                        {"🗑️"}
+                                    </button>
+                                    <div class="piano-sets-buttons">
+                                        {
+                                            // 세트 버튼 생성 (0-9)
+                                            (0..10).map(|set_idx| {
+                                                let set_label = if set_idx == 9 { "0".to_string() } else { (set_idx + 1).to_string() };
+                                                let has_notes = !self.piano_sets[set_idx].is_empty();
+                                                let is_selected = self.current_edit_set == Some(set_idx);
+                                                
+                                                html! {
+                                                    <button 
+                                                        class={classes!(
+                                                            "set-button", 
+                                                            if has_notes { "has-notes" } else { "" },
+                                                            if is_selected { "selected" } else { "" }
+                                                        )}
+                                                        onmousedown={ctx.link().callback(move |_| PianoMsg::PlaySet(set_idx))}
+                                                        onmouseup={ctx.link().callback(move |_| PianoMsg::ReleaseSet(set_idx))}
+                                                        onmouseleave={ctx.link().callback(move |_| PianoMsg::ReleaseSet(set_idx))}
+                                                    >
+                                                        {set_label}
+                                                    </button>
+                                                }
+                                            }).collect::<Html>()
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -1155,8 +1617,8 @@ impl PianoKeyboard {
     
     // 키 매핑 재생성
     fn recreate_key_mappings(&mut self) {
-        let left_hand_keys = ["z", "x", "c", "v", "a", "s", "d", "f", "q", "w", "e", "r", "t"];
-        let right_hand_keys = ["n", "m", ",", ".", "j", "k", "l", ";", "u", "i", "o", "p", "["];
+        let left_hand_keys = ["z", "x", "c", "v", "a", "s", "d", "f", "w", "e", "r", "t", "y"];
+        let right_hand_keys = ["m", ",", ".", "/", "j", "k", "l", ";", "u", "i", "o", "p", "["];
         
         Self::create_key_mappings(
             &mut self.key_mappings, 
