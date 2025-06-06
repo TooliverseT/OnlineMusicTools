@@ -8,6 +8,9 @@ An interactive music visualization and training tool to help you master your mus
 
 ## TODO
 
+* 반응형
+* 모바일 모드(좌우 스크롤로 선택)
+
 ### 제어반
 
 * 스피커 게인 조절 부드럽게
@@ -23,8 +26,12 @@ An interactive music visualization and training tool to help you master your mus
 ### 메트로놈
 
 * 음표 표시 변경
+* 악센트 제거 옵션
 
 ### 스케일 생성기
+
+* ui 수정
+* C8 까지만 D8, B8 등은 안됨.
 
 ### 피아노
 

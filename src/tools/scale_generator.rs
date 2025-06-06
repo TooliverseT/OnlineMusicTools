@@ -1,8 +1,9 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{AudioContext, OscillatorNode, GainNode};
+use web_sys::{AudioContext, OscillatorNode, GainNode, HtmlAudioElement, AudioNode};
 use yew::prelude::*;
 use std::collections::HashMap;
 use gloo_timers::callback::Timeout;
+use wasm_bindgen::closure::Closure;
 
 // 옥타브를 포함한 음 이름을 표현하는 구조체
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +23,34 @@ impl Note {
     // 음 이름과 옥타브를 합친 문자열 반환 (예: "C4")
     fn full_name(&self) -> String {
         format!("{}{}", self.name, self.octave)
+    }
+
+    // 피아노 음원 파일 경로 반환
+    fn piano_file_path(&self) -> String {
+        // 음 이름을 파일명 형식으로 변환 (예: C# -> Db)
+        let file_name = match self.name.as_str() {
+            "C#" => "Db",
+            "D#" => "Eb",
+            "F#" => "Gb",
+            "G#" => "Ab",
+            "A#" => "Bb",
+            name => name,
+        };
+
+        // 유효한 옥타브 범위 체크 (A0-C8)
+        let octave = self.octave.max(0).min(8);
+        
+        // A0은 최저음, C8은 최고음
+        if (octave == 0 && file_name < "A") || (octave == 8 && file_name > "C") {
+            // 범위를 벗어나면 가장 가까운 음 사용
+            if octave == 0 {
+                return format!("/static/piano/Piano.ff.A0.mp3");
+            } else {
+                return format!("/static/piano/Piano.ff.C8.mp3");
+            }
+        }
+
+        format!("/static/piano/Piano.ff.{}{}.mp3", file_name, octave)
     }
 
     // 주파수 계산 (A4 = 440Hz 기준)
@@ -93,8 +122,7 @@ pub enum PlaybackState {
 pub enum ScaleGeneratorMsg {
     SetStartNote(String, i32),  // 시작 근음 설정 (음 이름, 옥타브)
     SetEndNote(String, i32),    // 종료 근음 설정 (음 이름, 옥타브)
-    SetNoteInterval(u32),       // 음 간의 인터벌 시간 설정
-    SetSetInterval(u32),        // 스케일 셋 간의 인터벌 시간 설정
+    SetBpm(u32),                // BPM 설정
     AddInterval,                // 스케일 셋에 음정 추가
     RemoveInterval(usize),      // 스케일 셋에서 음정 제거
     SetIntervalValue(usize, String), // 특정 위치의 음정 값 설정
@@ -110,8 +138,7 @@ pub enum ScaleGeneratorMsg {
 pub struct ScaleGenerator {
     start_note: Note,           // 시작 근음
     end_note: Note,             // 종료 근음
-    note_interval_ms: u32,      // 음 간의 인터벌 시간 (밀리초)
-    set_interval_ms: u32,       // 스케일 셋 간의 인터벌 시간 (밀리초)
+    bpm: u32,                   // BPM (Beats Per Minute)
     intervals: Vec<String>,     // 스케일 셋의 음정 목록
     play_direction: PlayDirection, // 재생 방향
     playback_state: PlaybackState, // 현재 재생 상태
@@ -122,6 +149,7 @@ pub struct ScaleGenerator {
     notes_to_play: Vec<Note>,   // 재생할 음 목록
     play_timeout: Option<Timeout>, // 재생 타이머
     is_ascending: bool,         // 현재 상행 중인지 여부
+    audio_element: Option<HtmlAudioElement>, // 오디오 요소
 }
 
 impl Component for ScaleGenerator {
@@ -132,8 +160,7 @@ impl Component for ScaleGenerator {
         Self {
             start_note: Note::new("C", 4),  // 기본값 C4
             end_note: Note::new("C", 5),    // 기본값 C5
-            note_interval_ms: 500,         // 기본값 500ms
-            set_interval_ms: 1000,         // 기본값 1000ms
+            bpm: 120,                       // 기본값 120 BPM
             intervals: vec!["1".to_string()], // 기본값 근음(1도)
             play_direction: PlayDirection::Ascending, // 기본값 상행
             playback_state: PlaybackState::Stopped, // 기본값 정지
@@ -144,36 +171,41 @@ impl Component for ScaleGenerator {
             notes_to_play: Vec::new(),
             play_timeout: None,
             is_ascending: true,
+            audio_element: None,
         }
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             ScaleGeneratorMsg::SetStartNote(name, octave) => {
-                self.start_note = Note::new(&name, octave);
+                let mut adjusted_octave = octave;
+                
+                // 옥타브 범위 조정
+                adjusted_octave = match name.as_str() {
+                    "A" | "A#" | "B" => adjusted_octave.max(0).min(7),  // 0~7 범위로 제한
+                    "C" => adjusted_octave.max(1).min(8),               // 1~8 범위로 제한
+                    _ => adjusted_octave.max(1).min(7),                 // 1~7 범위로 제한
+                };
+                
+                self.start_note = Note::new(&name, adjusted_octave);
                 true
             }
             ScaleGeneratorMsg::SetEndNote(name, octave) => {
-                self.end_note = Note::new(&name, octave);
+                let mut adjusted_octave = octave;
+                
+                // 옥타브 범위 조정
+                adjusted_octave = match name.as_str() {
+                    "A" | "A#" | "B" => adjusted_octave.max(0).min(7),  // 0~7 범위로 제한
+                    "C" => adjusted_octave.max(1).min(8),               // 1~8 범위로 제한
+                    _ => adjusted_octave.max(1).min(7),                 // 1~7 범위로 제한
+                };
+                
+                self.end_note = Note::new(&name, adjusted_octave);
                 true
             }
-            ScaleGeneratorMsg::SetNoteInterval(ms) => {
-                // 최소값과 최대값 범위 지정
-                if ms >= 100 && ms <= 1000 {
-                    self.note_interval_ms = ms;
-                    true
-                } else {
-                    false
-                }
-            }
-            ScaleGeneratorMsg::SetSetInterval(ms) => {
-                // 최소값과 최대값 범위 지정
-                if ms >= 100 && ms <= 2000 {
-                    self.set_interval_ms = ms;
-                    true
-                } else {
-                    false
-                }
+            ScaleGeneratorMsg::SetBpm(bpm) => {
+                self.bpm = bpm;
+                true
             }
             ScaleGeneratorMsg::AddInterval => {
                 // 기본값 "1"(근음)으로 새 인터벌 추가
@@ -252,6 +284,13 @@ impl Component for ScaleGenerator {
                 // 타이머 중지
                 self.play_timeout = None;
                 
+                // 현재 재생 중인 오디오 중지 및 리소스 해제
+                if let Some(audio) = &self.audio_element {
+                    let _ = audio.pause();
+                    let _ = audio.set_src(""); // 리소스 해제
+                    self.audio_element = None;
+                }
+                
                 // 상태 업데이트
                 self.playback_state = PlaybackState::Stopped;
                 self.current_note_idx = 0;
@@ -272,59 +311,82 @@ impl Component for ScaleGenerator {
                     return false;
                 }
                 
-                if let Some(audio_ctx) = &self.audio_ctx {
-                    // 현재 재생 중인 노트가 있는지 확인
-                    if self.current_note_idx < self.notes_to_play.len() {
-                        // 현재 인덱스의 노트 가져오기
-                        let current_note = self.notes_to_play[self.current_note_idx].clone();
+                if self.current_note_idx < self.notes_to_play.len() {
+                    // 현재 인덱스의 노트 가져오기
+                    let current_note = self.notes_to_play[self.current_note_idx].clone();
+                    
+                    // SET_INTERVAL 노트인지 확인 (스케일 셋 구분자)
+                    let is_set_interval = current_note.name == "SET_INTERVAL" && current_note.octave == -1;
+                    
+                    // 다음 노트 인덱스 계산
+                    let next_idx = self.current_note_idx + 1;
+                    
+                    // BPM 기반 타이밍 계산 (밀리초 단위)
+                    // BPM은 분당 박자 수, 60000ms / BPM = 한 박자당 밀리초
+                    let beat_time_ms = 60000 / self.bpm;
+                    
+                    // 스케일 셋의 마지막 노트 여부 확인
+                    let is_scale_set_end = next_idx < self.notes_to_play.len() && 
+                                           self.notes_to_play[next_idx].name == "SET_INTERVAL" && 
+                                           self.notes_to_play[next_idx].octave == -1;
+                    
+                    // 전체 스케일의 마지막 노트 여부 확인
+                    let is_last_note = next_idx >= self.notes_to_play.len();
+                    
+                    // 기본 음표 지속시간은 한 박자(beat_time_ms)
+                    let mut note_duration = beat_time_ms;
+                    
+                    // 마지막 노트 처리 (스케일 셋 마지막 또는 전체 마지막)
+                    if is_scale_set_end || is_last_note {
+                        note_duration = beat_time_ms * 4; // 마지막 노트는 4배 길게
+                    }
+                    
+                    if !is_set_interval {
+                        // 일반 노트인 경우, 현재 노트 표시 및 재생
+                        self.current_playing_note = Some(current_note.clone());
                         
-                        // SET_INTERVAL 노트인지 확인 (스케일 셋 구분자)
-                        let is_set_interval = current_note.name == "SET_INTERVAL" && current_note.octave == -1;
-                        
-                        if !is_set_interval {
-                            // 일반 노트인 경우, 현재 노트 표시 및 재생
-                            self.current_playing_note = Some(current_note.clone());
-                            
-                            // 스케일 셋의 첫 번째 노트인 경우, 현재 근음 업데이트
-                            if self.current_note_idx == 0 || 
-                               (self.current_note_idx > 0 && 
-                                self.notes_to_play[self.current_note_idx - 1].name == "SET_INTERVAL" && 
-                                self.notes_to_play[self.current_note_idx - 1].octave == -1) {
-                                self.current_root_note = Some(current_note.clone());
-                            }
-                            
-                            self.play_note(&current_note);
+                        // 스케일 셋의 첫 번째 노트인 경우, 현재 근음 업데이트
+                        if self.current_note_idx == 0 || 
+                           (self.current_note_idx > 0 && 
+                            self.notes_to_play[self.current_note_idx - 1].name == "SET_INTERVAL" && 
+                            self.notes_to_play[self.current_note_idx - 1].octave == -1) {
+                            self.current_root_note = Some(current_note.clone());
                         }
                         
-                        // 다음 노트 인덱스로 이동
-                        self.current_note_idx += 1;
+                        // 피아노 음원으로 노트 재생
+                        self.play_piano_note(ctx, &current_note);
                         
-                        // 다음 노트가 있으면 타이머 설정
-                        if self.current_note_idx < self.notes_to_play.len() {
+                        // 다음 노트를 위해 인덱스 증가
+                        self.current_note_idx = next_idx;
+                        
+                        // 다음 노트를 위한 타이머 설정
+                        if !is_last_note {
                             let link = ctx.link().clone();
-                            
-                            // 스케일 셋 인터벌인 경우 다른 타이머 시간 사용
-                            let timeout_ms = if is_set_interval {
-                                self.set_interval_ms
-                            } else {
-                                self.note_interval_ms
-                            };
-                            
-                            let timeout = Timeout::new(timeout_ms, move || {
+                            let timeout = Timeout::new(note_duration, move || {
                                 link.send_message(ScaleGeneratorMsg::PlayNextNote);
                             });
                             self.play_timeout = Some(timeout);
                         } else {
-                            // 마지막 노트까지 재생 완료
-                            self.playback_state = PlaybackState::Stopped;
-                            self.current_note_idx = 0;
+                            // 마지막 노트인 경우 정지 메시지 예약
+                            let link = ctx.link().clone();
+                            let timeout = Timeout::new(note_duration, move || {
+                                link.send_message(ScaleGeneratorMsg::Stop);
+                            });
+                            self.play_timeout = Some(timeout);
                         }
                     } else {
-                        // 재생할 노트가 없는 경우
-                        self.playback_state = PlaybackState::Stopped;
-                        self.current_note_idx = 0;
-                        self.current_playing_note = None;
+                        // SET_INTERVAL 노트는 실제로 재생하지 않고 다음 노트로 진행
+                        self.current_note_idx = next_idx;
+                        
+                        // 다음 노트로 바로 진행 (BPM 기반으로는 추가 딜레이 없음)
+                        let link = ctx.link().clone();
+                        link.send_message(ScaleGeneratorMsg::PlayNextNote);
                     }
+                } else {
+                    // 마지막 노트까지 재생 완료
+                    self.playback_state = PlaybackState::Stopped;
+                    self.current_note_idx = 0;
+                    self.current_playing_note = None;
                 }
                 
                 true
@@ -351,7 +413,20 @@ impl Component for ScaleGenerator {
             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
         ];
         
-        let octaves = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+        // 옥타브 범위 함수 - 음 이름에 따라 선택 가능한 옥타브 범위 반환
+        let get_octave_range = |note_name: &str| -> Vec<i32> {
+            match note_name {
+                "A" | "A#" | "B" => (0..=7).collect(), // A, A#, B는 0~7 옥타브
+                "C" => (1..=8).collect(),              // C는 1~8 옥타브
+                _ => (1..=7).collect(),                // 나머지는 1~7 옥타브
+            }
+        };
+        
+        // 시작 음에 대한 옥타브 범위
+        let start_octaves = get_octave_range(&self.start_note.name);
+        
+        // 종료 음에 대한 옥타브 범위
+        let end_octaves = get_octave_range(&self.end_note.name);
         
         // 음정 옵션 목록
         let interval_options = vec![
@@ -398,7 +473,15 @@ impl Component for ScaleGenerator {
                                     onchange={ctx.link().callback(|e: Event| {
                                         let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
                                         let name = select.value();
-                                        ScaleGeneratorMsg::SetStartNote(name, 0) // 임시로 0 설정, 아래에서 업데이트됨
+                                        
+                                        // 음에 따른 기본 옥타브 설정
+                                        let default_octave = match name.as_str() {
+                                            "A" | "A#" | "B" => 0,   // A, A#, B는 기본 옥타브 0
+                                            "C" => 1,               // C는 기본 옥타브 1
+                                            _ => 1,                 // 나머지는 기본 옥타브 1
+                                        };
+                                        
+                                        ScaleGeneratorMsg::SetStartNote(name, default_octave)
                                     })}
                                 >
                                     {
@@ -424,7 +507,7 @@ impl Component for ScaleGenerator {
                                     }
                                 >
                                     {
-                                        octaves.iter().map(|&octave| {
+                                        start_octaves.iter().map(|&octave| {
                                             html! {
                                                 <option value={octave.to_string()} selected={self.start_note.octave == octave}>
                                                     {octave}
@@ -443,11 +526,18 @@ impl Component for ScaleGenerator {
                                 <select
                                     value={self.end_note.name.clone()}
                                     onchange={
-                                        let octave = self.end_note.octave;
-                                        ctx.link().callback(move |e: Event| {
+                                        ctx.link().callback(|e: Event| {
                                             let select = e.target_dyn_into::<web_sys::HtmlSelectElement>().unwrap();
                                             let name = select.value();
-                                            ScaleGeneratorMsg::SetEndNote(name, octave)
+                                            
+                                            // 음에 따른 기본 옥타브 설정
+                                            let default_octave = match name.as_str() {
+                                                "A" | "A#" | "B" => 0,   // A, A#, B는 기본 옥타브 0
+                                                "C" => 1,               // C는 기본 옥타브 1
+                                                _ => 1,                 // 나머지는 기본 옥타브 1
+                                            };
+                                            
+                                            ScaleGeneratorMsg::SetEndNote(name, default_octave)
                                         })
                                     }
                                 >
@@ -474,7 +564,7 @@ impl Component for ScaleGenerator {
                                     }
                                 >
                                     {
-                                        octaves.iter().map(|&octave| {
+                                        end_octaves.iter().map(|&octave| {
                                             html! {
                                                 <option value={octave.to_string()} selected={self.end_note.octave == octave}>
                                                     {octave}
@@ -491,37 +581,68 @@ impl Component for ScaleGenerator {
                 <div class="generator-section">
                     <div class="interval-settings">
                         <div class="setting-group">
-                            <label>{"음 간의 인터벌 시간 (ms):"}</label>
-                            <input 
-                                type="range" 
-                                min="100" 
-                                max="1000" 
-                                step="50" 
-                                value={self.note_interval_ms.to_string()}
-                                onchange={ctx.link().callback(|e: Event| {
-                                    let input = e.target_dyn_into::<web_sys::HtmlInputElement>().unwrap();
-                                    let value = input.value().parse::<u32>().unwrap_or(500);
-                                    ScaleGeneratorMsg::SetNoteInterval(value)
-                                })}
-                            />
-                            <span class="interval-value">{format!("{}ms", self.note_interval_ms)}</span>
-                        </div>
-                        
-                        <div class="setting-group">
-                            <label>{"스케일 셋 간의 인터벌 시간 (ms):"}</label>
-                            <input 
-                                type="range" 
-                                min="100" 
-                                max="2000" 
-                                step="100" 
-                                value={self.set_interval_ms.to_string()}
-                                onchange={ctx.link().callback(|e: Event| {
-                                    let input = e.target_dyn_into::<web_sys::HtmlInputElement>().unwrap();
-                                    let value = input.value().parse::<u32>().unwrap_or(1000);
-                                    ScaleGeneratorMsg::SetSetInterval(value)
-                                })}
-                            />
-                            <span class="interval-value">{format!("{}ms", self.set_interval_ms)}</span>
+                            <div class="bpm-display" style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
+                                <label style="font-size: 1.2rem; margin-right: 10px;">{"BPM:"}</label>
+                                <span style="font-size: 1.5rem; font-weight: bold;">{self.bpm}</span>
+                            </div>
+                            
+                            <div class="bpm-buttons" style="display: flex; justify-content: center; gap: 10px;">
+                                <button 
+                                    style="padding: 5px 10px; font-size: 1rem;"
+                                    onclick={
+                                        let current_bpm = self.bpm;
+                                        ctx.link().callback(move |_| {
+                                            let new_bpm = if current_bpm <= 35 { 30 } else { current_bpm - 5 };
+                                            ScaleGeneratorMsg::SetBpm(new_bpm)
+                                        })
+                                    }
+                                    disabled={self.bpm <= 30}
+                                >
+                                    {"- 5"}
+                                </button>
+                                
+                                <button 
+                                    style="padding: 5px 10px; font-size: 1rem;"
+                                    onclick={
+                                        let current_bpm = self.bpm;
+                                        ctx.link().callback(move |_| {
+                                            let new_bpm = if current_bpm <= 30 { 30 } else { current_bpm - 1 };
+                                            ScaleGeneratorMsg::SetBpm(new_bpm)
+                                        })
+                                    }
+                                    disabled={self.bpm <= 30}
+                                >
+                                    {"-"}
+                                </button>
+                                
+                                <button 
+                                    style="padding: 5px 10px; font-size: 1rem;"
+                                    onclick={
+                                        let current_bpm = self.bpm;
+                                        ctx.link().callback(move |_| {
+                                            let new_bpm = if current_bpm >= 300 { 300 } else { current_bpm + 1 };
+                                            ScaleGeneratorMsg::SetBpm(new_bpm)
+                                        })
+                                    }
+                                    disabled={self.bpm >= 300}
+                                >
+                                    {"+"}
+                                </button>
+                                
+                                <button 
+                                    style="padding: 5px 10px; font-size: 1rem;"
+                                    onclick={
+                                        let current_bpm = self.bpm;
+                                        ctx.link().callback(move |_| {
+                                            let new_bpm = if current_bpm >= 295 { 300 } else { current_bpm + 5 };
+                                            ScaleGeneratorMsg::SetBpm(new_bpm)
+                                        })
+                                    }
+                                    disabled={self.bpm >= 300}
+                                >
+                                    {"+ 5"}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -669,6 +790,68 @@ impl Component for ScaleGenerator {
 }
 
 impl ScaleGenerator {
+    // 피아노 음원으로 노트 재생
+    fn play_piano_note(&mut self, ctx: &Context<Self>, note: &Note) {
+        // 문서 객체 모델에서 window 객체 가져오기
+        let window = web_sys::window().expect("window 객체를 가져올 수 없습니다");
+        let document = window.document().expect("document 객체를 가져올 수 없습니다");
+        
+        // 이전 오디오 요소 저장 (나중에 중지하기 위해)
+        let prev_audio = self.audio_element.take();
+        
+        // 새 오디오 요소 생성
+        let audio_element = match document.create_element("audio") {
+            Ok(element) => element,
+            Err(err) => {
+                web_sys::console::error_1(&format!("오디오 요소 생성 실패: {:?}", err).into());
+                return;
+            }
+        };
+        
+        let audio_element: HtmlAudioElement = audio_element
+            .dyn_into::<HtmlAudioElement>()
+            .expect("HtmlAudioElement로 변환할 수 없습니다");
+        
+        // 피아노 음원 파일 경로 설정
+        let piano_file_path = note.piano_file_path();
+        audio_element.set_src(&piano_file_path);
+        
+        // 볼륨 설정
+        audio_element.set_volume(0.7);
+        
+        // 오디오 요소 저장
+        self.audio_element = Some(audio_element.clone());
+        
+        // 오디오 요소를 미리 로드
+        let _ = audio_element.load();
+        
+        // 시작 위치를 0초로 설정 후 재생
+        audio_element.set_current_time(0.0);
+        
+        // 오디오 재생
+        if let Err(err) = audio_element.play() {
+            web_sys::console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+        } else {
+            web_sys::console::log_1(&format!("피아노 노트 재생: {} (파일: {})",
+                note.full_name(), piano_file_path).into());
+                
+            // 이전 오디오가 있다면, 새 오디오가 재생된 후 0.1초 후에 중지
+            if let Some(prev) = prev_audio {
+                // 0.1초 후에 이전 오디오 중지
+                let window_clone = window.clone();
+                let closure = Closure::once_into_js(move || {
+                    let _ = prev.pause();
+                    let _ = prev.set_src("");  // 리소스 해제
+                });
+                
+                let _ = window_clone.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    100  // 0.1초 (100ms)
+                );
+            }
+        }
+    }
+
     // 재생할 노트 목록 생성
     fn generate_notes_to_play(&mut self) {
         self.notes_to_play.clear();
@@ -767,16 +950,8 @@ impl ScaleGenerator {
         for (idx, root_note) in notes.iter().enumerate() {
             let mut scale_notes = Vec::new();
             
-            // // 항상 근음을 첫 번째로 추가
-            // scale_notes.push(root_note.clone());
-            
             // 선택된 모든 인터벌에 대해 음 추가
             for interval in &self.intervals {
-                // // 근음(1도)은 이미 추가했으므로 건너뜀
-                // if interval == "1" {
-                //     continue;
-                // }
-                
                 // 인터벌에 따른 음 계산 및 추가
                 if let Some(note) = self.compute_note_from_interval(root_note, interval) {
                     scale_notes.push(note);
@@ -791,50 +966,6 @@ impl ScaleGenerator {
             // set_interval_ms 만큼 대기하도록 함
             if idx < notes.len() - 1 {
                 self.notes_to_play.push(Note::new("SET_INTERVAL", -1));
-            }
-        }
-    }
-    
-    // 지정된 노트 재생
-    fn play_note(&self, note: &Note) {
-        if let Some(audio_ctx) = &self.audio_ctx {
-            if let Ok(oscillator) = audio_ctx.create_oscillator() {
-                // 주파수 설정
-                oscillator.frequency().set_value(note.frequency());
-                
-                // 게인 노드 생성 (볼륨 제어)
-                if let Ok(gain) = audio_ctx.create_gain() {
-                    // 오실레이터를 게인 노드에 연결
-                    if oscillator.connect_with_audio_node(&gain).is_err() {
-                        web_sys::console::error_1(&"오실레이터 연결 실패".into());
-                        return;
-                    }
-                    
-                    // 게인 노드를 출력에 연결
-                    if gain.connect_with_audio_node(&audio_ctx.destination()).is_err() {
-                        web_sys::console::error_1(&"게인 노드 연결 실패".into());
-                        return;
-                    }
-                    
-                    // 볼륨 설정
-                    gain.gain().set_value(0.3); // 30% 볼륨
-                    
-                    // 현재 시간 가져오기
-                    let current_time = audio_ctx.current_time();
-                    
-                    // 게인 엔벨로프 설정 (빠른 어택, 빠른 릴리즈)
-                    let _ = gain.gain().set_value_at_time(0.0, current_time);
-                    let _ = gain.gain().linear_ramp_to_value_at_time(0.3, current_time + 0.01);
-                    let _ = gain.gain().exponential_ramp_to_value_at_time(0.001, current_time + 0.3);
-                    
-                    // 오실레이터 시작 및 중지 스케줄링
-                    let _ = oscillator.start();
-                    let _ = oscillator.stop_with_when(current_time + 0.4);
-                    
-                    // 로그 출력
-                    web_sys::console::log_1(&format!("노트 재생: {} ({:.2} Hz)",
-                        note.full_name(), note.frequency()).into());
-                }
             }
         }
     }
