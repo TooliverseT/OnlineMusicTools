@@ -14,6 +14,7 @@ An interactive music visualization and training tool to help you master your mus
 * 전체 스타일 통합 및 정리
 * 릴리즈 형태로 변경
 * 상세페이지 링크 위치 또는 크기 변경
+* 로그 제거
 
 ### 제어반
 
@@ -36,4 +37,4 @@ An interactive music visualization and training tool to help you master your mus
 
 ### 피아노
 
-* 셋(코드) 저장 및 재생 기능
+* 컨트롤러 UI 변경

@@ -7,6 +7,7 @@ use gloo_timers::callback::Timeout;
 use wasm_bindgen::closure::Closure;
 use web_sys::console;
 use js_sys;
+use log::info;
 
 // 피아노 키 정보를 위한 구조체
 #[derive(Clone, PartialEq)]
@@ -91,6 +92,13 @@ pub enum PianoMsg {
     ToggleKeyInSet(usize),          // 세트에서 키 토글 (추가/제거)
     ToggleKeyInSetWithSound(usize),           // 소리와 함께 세트에서 키 토글
     ClearAllSets,                   // 모든 세트 초기화
+    StopSetSounds(usize),           // 세트의 모든 소리 정지
+    RemoveSetSound(usize, usize),   // 특정 세트의 특정 키 소리 제거
+    StopSetSoundsIfReleased(usize),  // 세트의 모든 키가 눌려있지 않고 서스테인이 꺼져 있을 때만 소리 정지
+    StopSetKeySound(usize, usize),   // 특정 세트의 특정 키 소리 정지
+    AddActiveSound(String, HtmlAudioElement), // 활성 소리 추가
+    RemoveActiveSound(String),        // 활성 소리 제거
+    FadeOutSound(String, f64),      // 특정 소리를 서서히 페이드아웃 (소리 이름, 현재 볼륨)
 }
 
 // 피아노 컴포넌트
@@ -111,6 +119,7 @@ pub struct PianoKeyboard {
     piano_sets: Vec<Vec<usize>>,    // 피아노 세트 (키 인덱스의 집합)
     set_edit_mode: bool,            // 세트 수정 모드 활성화 여부
     current_edit_set: Option<usize>, // 현재 수정 중인 세트 인덱스
+    active_set: Option<usize>,      // 현재 활성화된 세트 인덱스
 }
 
 impl Component for PianoKeyboard {
@@ -174,6 +183,7 @@ impl Component for PianoKeyboard {
         pressed_keyboard_keys.insert("q".to_string(), false); // UI 범위 한 옥타브 아래로
         pressed_keyboard_keys.insert("]".to_string(), false); // UI 범위 한 옥타브 위로
         pressed_keyboard_keys.insert(" ".to_string(), false); // 스페이스바 (서스테인)
+        pressed_keyboard_keys.insert("'".to_string(), false); // 작은따옴표 (키보드 입력 활성화/비활성화)
         pressed_keyboard_keys.insert("-".to_string(), false); // - (왼손 시작 음 높이기)
         pressed_keyboard_keys.insert("=".to_string(), false); // = (오른손 시작 음 높이기)
         pressed_keyboard_keys.insert("_".to_string(), false); // _ (왼손 시작 음 낮추기)
@@ -217,6 +227,7 @@ impl Component for PianoKeyboard {
             piano_sets,
             set_edit_mode: false,
             current_edit_set: None,
+            active_set: None,
         }
     }
 
@@ -226,31 +237,74 @@ impl Component for PianoKeyboard {
                 if index < self.keys.len() {
                     self.keys[index].is_pressed = true;
                     
-                    // 기존 소리를 중지하지 않고 새로운 오디오 요소 생성
-                    let audio = HtmlAudioElement::new_with_src(&self.keys[index].audio_path())
-                        .expect("오디오 요소 생성 실패");
+                    // 동일한 키에 대한 이전 소리 제거 (연타 방지를 위함)
+                    let key_base_name = self.keys[index].full_name();
+                    // 해당 키에 관련된 모든 소리 찾기
+                    let existing_sounds: Vec<String> = self.active_sounds.keys()
+                        .filter(|k| k.starts_with(&key_base_name))
+                        .cloned()
+                        .collect();
                     
-                    // 볼륨 설정
-                    audio.set_volume(0.7);
-                    
-                    // 시작 위치 리셋
-                    audio.set_current_time(0.0);
-                    
-                    // 오디오 요소 미리 로드
-                    let _ = audio.load();
-                    
-                    // 기존 키 이름과 다른 고유 ID 생성 (타임스탬프 추가)
-                    let key_name = format!("{}_{}", self.keys[index].full_name(), js_sys::Date::now());
-                    
-                    match audio.play() {
-                        Ok(_) => {
-                            console::log_1(&format!("피아노 노트 재생: {}", key_name).into());
-                            self.active_sounds.insert(key_name, audio);
-                        },
-                        Err(err) => {
-                            console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                    // 기존 소리를 중지하지 않고 페이드아웃하도록 변경
+                    for key_name in existing_sounds {
+                        if let Some(audio) = self.active_sounds.get(&key_name) {
+                            // 현재 볼륨 값을 가져와 페이드아웃 시작
+                            let current_volume = audio.volume();
+                            let key_name_clone = key_name.clone();
+                            let link = ctx.link().clone();
+                            
+                            // 페이드아웃 메시지 전송
+                            link.send_message(PianoMsg::FadeOutSound(key_name_clone, current_volume));
                         }
                     }
+                    
+                    // 약간의 지연 후 새 오디오 요소 생성 및 재생
+                    let audio_path = self.keys[index].audio_path();
+                    let key_full_name = self.keys[index].full_name();
+                    let link = ctx.link().clone();
+                    
+                    // 10ms 지연 후 새 오디오 생성 및 재생
+                    let timeout = Timeout::new(10, move || {
+                        // 새 오디오 요소 생성
+                        if let Ok(audio) = HtmlAudioElement::new_with_src(&audio_path) {
+                            // 볼륨 설정
+                            audio.set_volume(0.7);
+                            
+                            // 시작 위치 리셋
+                            audio.set_current_time(0.0);
+                            
+                            // 오디오 요소 미리 로드
+                            let _ = audio.load();
+                            
+                            // 고유 ID 생성 (타임스탬프 추가)
+                            let key_name = format!("{}_{}", key_full_name, js_sys::Date::now());
+                            
+                            // 먼저 재생하려면 타임스탬프 지연이 중요함
+                            let play_link = link.clone();
+                            let key_name_clone = key_name.clone();
+                            let audio_clone = audio.clone();
+                            
+                            // active_sounds에 추가
+                            let msg = PianoMsg::AddActiveSound(key_name_clone, audio_clone);
+                            play_link.send_message(msg);
+                            
+                            // 약간의 지연 후 재생 시작
+                            let play_timeout = Timeout::new(5, move || {
+                                match audio.play() {
+                                    Ok(_) => {
+                                        console::log_1(&format!("피아노 노트 재생: {}", key_name).into());
+                                    },
+                                    Err(err) => {
+                                        console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                                        // 재생 실패 시 맵에서 제거
+                                        play_link.send_message(PianoMsg::RemoveActiveSound(key_name));
+                                    }
+                                }
+                            });
+                            play_timeout.forget();
+                        }
+                    });
+                    timeout.forget();
                     
                     true
                 } else {
@@ -300,6 +354,7 @@ impl Component for PianoKeyboard {
                 
                 // 서스테인이 꺼졌을 때 눌린 키가 없는 소리들 정지
                 if !self.sustain {
+                    // 일반 키에 대한 처리
                     let keys_to_stop: Vec<String> = self.active_sounds.keys()
                         .filter(|k| {
                             // 키 이름에서 타임스탬프 부분 제거 (첫 번째 '_' 앞부분만 사용)
@@ -332,10 +387,11 @@ impl Component for PianoKeyboard {
                 true
             },
             PianoMsg::StopSound(key_name) => {
-                if let Some(audio) = self.active_sounds.get(&key_name) {
-                    let _ = audio.pause();
+                // 소리를 먼저 제거하고 나중에 일시 중지 - 재생 중단 오류 방지
+                if let Some(audio) = self.active_sounds.remove(&key_name) {
+                    // 맵에서 먼저 제거한 후 pause 호출
                     let _ = audio.set_current_time(0.0);
-                    self.active_sounds.remove(&key_name);
+                    let _ = audio.pause();
                 }
                 false
             },
@@ -359,15 +415,19 @@ impl Component for PianoKeyboard {
             PianoMsg::KeyboardKeyDown(key) => {
                 // 키보드 입력이 비활성화된 경우 무시
                 if !self.keyboard_input_enabled {
+                    // 작은따옴표(') 키는 키보드 입력 활성화/비활성화 토글로 항상 처리
+                    if key == "'" {
+                        return yew::Component::update(self, ctx, PianoMsg::ToggleKeyboardInput);
+                    }
                     return false;
                 }
                 
                 // 옥타브 변경 키 처리
                 match key.as_str() {
-                    "b" => return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandOctave(-1)),
-                    "g" => return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandOctave(1)),
-                    "n" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(-1)),
-                    "h" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(1)),
+                    "-" => return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandOctave(-1)), // 왼손 옥타브 내림 (이전: b)
+                    "_" => return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandOctave(1)), // 왼손 옥타브 올림 (이전: g)
+                    "=" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(-1)), // 오른손 옥타브 내림 (이전: n)
+                    "+" => return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandOctave(1)), // 오른손 옥타브 올림 (이전: h)
                     "q" => return yew::Component::update(self, ctx, PianoMsg::MovePianoUIRange(-1)), // UI 범위를 한 옥타브 아래로
                     "]" => return yew::Component::update(self, ctx, PianoMsg::MovePianoUIRange(1)),  // UI 범위를 한 옥타브 위로
                     " " => {
@@ -377,21 +437,25 @@ impl Component for PianoKeyboard {
                         }
                         return false;
                     },
-                    "-" => {
-                        // 왼손 시작 음 높이기
-                        return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandStartNote(1));
+                    "'" => {
+                        // 작은따옴표(') 키를 누르면 키보드 입력 활성화/비활성화 토글
+                        return yew::Component::update(self, ctx, PianoMsg::ToggleKeyboardInput);
                     },
-                    "_" => {
-                        // 왼손 시작 음 낮추기
+                    "b" => {
+                        // 왼손 시작 음 낮추기 (이전: -)
                         return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandStartNote(-1));
                     },
-                    "=" => {
-                        // 오른손 시작 음 높이기
-                        return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandStartNote(1));
+                    "g" => {
+                        // 왼손 시작 음 높이기 (이전: _)
+                        return yew::Component::update(self, ctx, PianoMsg::ChangeLeftHandStartNote(1));
                     },
-                    "+" => {
-                        // 오른손 시작 음 낮추기
+                    "n" => {
+                        // 오른손 시작 음 낮추기 (이전: =)
                         return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandStartNote(-1));
+                    },
+                    "h" => {
+                        // 오른손 시작 음 높이기 (이전: +)
+                        return yew::Component::update(self, ctx, PianoMsg::ChangeRightHandStartNote(1));
                     },
                     "Escape" => {
                         // Escape 키를 누르면 모든 키 리셋
@@ -404,23 +468,6 @@ impl Component for PianoKeyboard {
                     "~" => {
                         // ~ 키를 누르면 모든 세트 초기화
                         return yew::Component::update(self, ctx, PianoMsg::ClearAllSets);
-                    },
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0" => {
-                        // 1-9, 0 키를 누르면 해당 세트 재생 또는 선택
-                        let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap() - 1 };
-                        
-                        if self.set_edit_mode {
-                            return yew::Component::update(self, ctx, PianoMsg::SelectSetToEdit(set_idx));
-                        } else {
-                            // 이미 눌려있는 키는 무시
-                            if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
-                                if *is_pressed {
-                                    return false;
-                                }
-                                *is_pressed = true;
-                            }
-                            return yew::Component::update(self, ctx, PianoMsg::PlaySet(set_idx));
-                        }
                     },
                     _ => {}
                 }
@@ -447,6 +494,13 @@ impl Component for PianoKeyboard {
             PianoMsg::KeyboardKeyUp(key) => {
                 // 키보드 입력이 비활성화된 경우 무시
                 if !self.keyboard_input_enabled {
+                    // 작은따옴표(') 키는 키보드 입력 활성화/비활성화 토글로 항상 처리 (키업은 이미 처리됨)
+                    if key == "'" {
+                        if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
+                            *is_pressed = false;
+                        }
+                        return false;
+                    }
                     return false;
                 }
                 
@@ -459,7 +513,7 @@ impl Component for PianoKeyboard {
                         }
                         return false;
                     },
-                    "b" | "g" | "n" | "h" | "q" | "]" | "-" | "=" | "_" | "+" | "`" | "~" => {
+                    "b" | "g" | "n" | "h" | "q" | "]" | "-" | "=" | "_" | "+" | "`" | "~" | "'" => {
                         if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
                             *is_pressed = false;
                         }
@@ -471,18 +525,6 @@ impl Component for PianoKeyboard {
                         });
                         timeout.forget();
                         
-                        return false;
-                    },
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0" => {
-                        // 1-9, 0 키를 뗄 때 세트 재생 중지
-                        if let Some(is_pressed) = self.pressed_keyboard_keys.get_mut(&key) {
-                            *is_pressed = false;
-                        }
-                        
-                        if !self.set_edit_mode {
-                            let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap() - 1 };
-                            return yew::Component::update(self, ctx, PianoMsg::ReleaseSet(set_idx));
-                        }
                         return false;
                     },
                     _ => {}
@@ -636,6 +678,9 @@ impl Component for PianoKeyboard {
                     key.is_pressed = false;
                 }
                 
+                // 활성 세트 초기화
+                self.active_set = None;
+                
                 // 모든 소리 중지
                 let sounds_to_stop: Vec<String> = self.active_sounds.keys().cloned().collect();
                 for key_name in sounds_to_stop {
@@ -670,13 +715,22 @@ impl Component for PianoKeyboard {
                                 .unwrap_or(false)
                         });
                     
-                    // 키 상태 불일치 수정
-                    if key.is_pressed != has_pressed_key {
-                        key.is_pressed = has_pressed_key;
+                    // 세트에 속한 키인 경우도 검사 - 활성화된 세트가 있는 경우에만 세트 키를 눌려있게 표시
+                    let is_in_active_set = if let Some(set_idx) = self.active_set {
+                        self.piano_sets[set_idx].contains(&i)
+                    } else {
+                        false
+                    };
+                    
+                    // 키 상태 불일치 수정 (세트에 속한 키는 항상 눌려있는 상태로 유지)
+                    let should_be_pressed = has_pressed_key || is_in_active_set;
+                    
+                    if key.is_pressed != should_be_pressed {
+                        key.is_pressed = should_be_pressed;
                         updated = true;
                         
                         // 눌려있지 않아야 하는데 눌려있으면 소리 중지
-                        if !has_pressed_key {
+                        if !should_be_pressed {
                             let key_base_name = key.full_name();
                             
                             // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
@@ -700,6 +754,10 @@ impl Component for PianoKeyboard {
             },
             PianoMsg::ToggleKeyboardInput => {
                 self.keyboard_input_enabled = !self.keyboard_input_enabled;
+                
+                // 상태 변경 로그 출력
+                console::log_1(&format!("키보드 입력 {}", if self.keyboard_input_enabled { "활성화" } else { "비활성화" }).into());
+                
                 true
             },
             PianoMsg::PlaySet(set_idx) => {
@@ -708,39 +766,113 @@ impl Component for PianoKeyboard {
                         // 수정 모드에서는 세트 선택
                         return yew::Component::update(self, ctx, PianoMsg::SelectSetToEdit(set_idx));
                     }
+
+                    // 현재 세트를 활성화된 세트로 설정
+                    self.active_set = Some(set_idx);
                     
                     // 세트에 포함된 모든 키를 동시에 누름
                     for &key_idx in &self.piano_sets[set_idx] {
                         if key_idx < self.keys.len() {
+                            // 키 상태 업데이트
                             self.keys[key_idx].is_pressed = true;
                             
-                            // 소리 재생 (KeyPressed와 동일한 로직)
-                            let audio = HtmlAudioElement::new_with_src(&self.keys[key_idx].audio_path())
-                                .expect("오디오 요소 생성 실패");
+                            // 동일한 키에 대한 이전 소리 제거 (연타 방지를 위함)
+                            let key_base_name = self.keys[key_idx].full_name();
                             
-                            // 볼륨 설정
-                            audio.set_volume(0.7);
+                            // 이전 소리를 페이드아웃
+                            let existing_sounds: Vec<String> = self.active_sounds.keys()
+                                .filter(|k| k.starts_with(&key_base_name))
+                                .cloned()
+                                .collect();
                             
-                            // 시작 위치 리셋
-                            audio.set_current_time(0.0);
-                            
-                            // 오디오 요소 미리 로드
-                            let _ = audio.load();
-                            
-                            // 기존 키 이름과 다른 고유 ID 생성 (타임스탬프 추가)
-                            let key_name = format!("{}_{}", self.keys[key_idx].full_name(), js_sys::Date::now());
-                            
-                            match audio.play() {
-                                Ok(_) => {
-                                    console::log_1(&format!("피아노 노트 재생: {}", key_name).into());
-                                    self.active_sounds.insert(key_name, audio);
-                                },
-                                Err(err) => {
-                                    console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                            // 소리가 최소 500ms 재생되도록 타임스탬프 확인
+                            for key_name in existing_sounds {
+                                if let Some(audio) = self.active_sounds.get(&key_name) {
+                                    // 키 이름에서 타임스탬프 추출
+                                    if let Some(pos) = key_name.rfind('_') {
+                                        if let Ok(timestamp) = key_name[pos+1..].parse::<f64>() {
+                                            let current_time = js_sys::Date::now();
+                                            let elapsed = current_time - timestamp;
+                                            
+                                            // 500ms 미만인 경우 페이드아웃 사용, 그렇지 않은 경우 기존 로직 사용
+                                            if elapsed < 500.0 {
+                                                // 현재 볼륨 값을 가져와 페이드아웃 시작
+                                                let current_volume = audio.volume();
+                                                let key_name_clone = key_name.clone();
+                                                let link = ctx.link().clone();
+                                                
+                                                // 페이드아웃 메시지 전송 (500ms - elapsed 시간 후에 소리 정지)
+                                                let remaining = (500.0 - elapsed).max(100.0) as u32;
+                                                let timeout = Timeout::new(remaining, move || {
+                                                    link.send_message(PianoMsg::FadeOutSound(key_name_clone, current_volume));
+                                                });
+                                                timeout.forget();
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 기본 동작: 현재 볼륨 값을 가져와 페이드아웃 시작
+                                    let current_volume = audio.volume();
+                                    let key_name_clone = key_name.clone();
+                                    let link = ctx.link().clone();
+                                    
+                                    // 페이드아웃 메시지 전송
+                                    link.send_message(PianoMsg::FadeOutSound(key_name_clone, current_volume));
                                 }
                             }
+                            
+                            // 약간의 지연 후 새 오디오 요소 생성 및 재생
+                            let audio_path = self.keys[key_idx].audio_path();
+                            let key_full_name = self.keys[key_idx].full_name();
+                            let set_idx_copy = set_idx;
+                            let link = ctx.link().clone();
+                            
+                            // 10ms 지연 후 새 오디오 생성 및 재생
+                            let timeout = Timeout::new(10, move || {
+                                // 새 오디오 요소 생성
+                                if let Ok(audio) = HtmlAudioElement::new_with_src(&audio_path) {
+                                    // 볼륨 설정
+                                    audio.set_volume(0.7);
+                                    
+                                    // 시작 위치 리셋
+                                    audio.set_current_time(0.0);
+                                    
+                                    // 오디오 요소 미리 로드
+                                    let _ = audio.load();
+                                    
+                                    // 고유 ID 생성 (타임스탬프 추가)
+                                    let key_name = format!("{}_{}", key_full_name, js_sys::Date::now());
+                                    
+                                    // 먼저 재생하려면 타임스탬프 지연이 중요함
+                                    let play_link = link.clone();
+                                    let key_name_clone = key_name.clone();
+                                    let audio_clone = audio.clone();
+                                    
+                                    // active_sounds에 추가
+                                    let msg = PianoMsg::AddActiveSound(key_name_clone, audio_clone);
+                                    play_link.send_message(msg);
+                                    
+                                    // 약간의 지연 후 재생 시작
+                                    let play_timeout = Timeout::new(5, move || {
+                                        match audio.play() {
+                                            Ok(_) => {
+                                                console::log_1(&format!("피아노 노트 재생(세트{}): {}", set_idx_copy, key_name).into());
+                                            },
+                                            Err(err) => {
+                                                console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                                                // 재생 실패 시 맵에서 제거
+                                                play_link.send_message(PianoMsg::RemoveActiveSound(key_name));
+                                            }
+                                        }
+                                    });
+                                    play_timeout.forget();
+                                }
+                            });
+                            timeout.forget();
                         }
                     }
+                    
                     true
                 } else {
                     false
@@ -748,36 +880,45 @@ impl Component for PianoKeyboard {
             },
             PianoMsg::ReleaseSet(set_idx) => {
                 if set_idx < self.piano_sets.len() {
+                    // 현재 활성화된 세트가 이 세트인 경우 활성화 상태 해제
+                    if self.active_set == Some(set_idx) {
+                        self.active_set = None;
+                    }
+                    
                     // 세트에 포함된 모든 키를 동시에 뗌
                     for &key_idx in &self.piano_sets[set_idx] {
-                        if key_idx < self.keys.len() {
-                            self.keys[key_idx].is_pressed = false;
+                        // 이미 뗀 상태면 무시
+                        if !self.keys[key_idx].is_pressed {
+                            continue;
+                        }
+                        
+                        self.keys[key_idx].is_pressed = false;
+                        
+                        // 서스테인이 꺼져 있으면 0.5초 후에 해당 키의 모든 소리 정지
+                        if !self.sustain {
+                            let key_base_name = self.keys[key_idx].full_name();
                             
-                            // 서스테인이 꺼져 있으면 1초 후에 소리 정지 (KeyReleased와 동일한 로직)
-                            if !self.sustain {
-                                let key_base_name = self.keys[key_idx].full_name();
+                            // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                            let sounds_to_stop: Vec<String> = self.active_sounds.keys()
+                                .filter(|k| k.starts_with(&key_base_name))
+                                .cloned()
+                                .collect();
+                            
+                            for key_name in sounds_to_stop {
+                                let key_name_clone = key_name.clone();
+                                let link = ctx.link().clone();
                                 
-                                // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
-                                let sounds_to_stop: Vec<String> = self.active_sounds.keys()
-                                    .filter(|k| k.starts_with(&key_base_name))
-                                    .cloned()
-                                    .collect();
+                                // 0.5초 후에 소리 정지
+                                let timeout = Timeout::new(500, move || {
+                                    link.send_message(PianoMsg::StopSound(key_name_clone));
+                                });
                                 
-                                for key_name in sounds_to_stop {
-                                    let key_name_clone = key_name.clone();
-                                    let link = ctx.link().clone();
-                                    
-                                    // 1초 후에 소리 정지 (서스테인과 비슷하게 약간 더 길게)
-                                    let timeout = Timeout::new(500, move || {
-                                        link.send_message(PianoMsg::StopSound(key_name_clone));
-                                    });
-                                    
-                                    // 타임아웃이 가비지 컬렉션되지 않도록 함
-                                    timeout.forget();
-                                }
+                                // 타임아웃이 가비지 컬렉션되지 않도록 함
+                                timeout.forget();
                             }
                         }
                     }
+                    
                     true
                 } else {
                     false
@@ -846,6 +987,129 @@ impl Component for PianoKeyboard {
                 }
                 true
             },
+            PianoMsg::StopSetSounds(set_idx) => {
+                self.stop_set_sounds(set_idx);
+                false
+            },
+            PianoMsg::RemoveSetSound(set_idx, key_idx) => {
+                if set_idx < self.piano_sets.len() && key_idx < self.keys.len() {
+                    let key_base_name = self.keys[key_idx].full_name();
+                    
+                    // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                    let sounds_to_stop: Vec<String> = self.active_sounds.keys()
+                        .filter(|k| k.starts_with(&key_base_name))
+                        .cloned()
+                        .collect();
+                    
+                    for key_name in sounds_to_stop {
+                        // 맵에서 먼저 제거
+                        if let Some(audio) = self.active_sounds.remove(&key_name) {
+                            let _ = audio.set_current_time(0.0);
+                            let _ = audio.pause();
+                            console::log_1(&format!("세트 {} 키 {} 소리 제거", set_idx, key_idx).into());
+                        }
+                    }
+                }
+                false
+            },
+            PianoMsg::StopSetSoundsIfReleased(set_idx) => {
+                if set_idx < self.piano_sets.len() {
+                    // 세트의 모든 키가 눌려있지 않고 서스테인이 꺼져 있을 때만 소리 정지
+                    let all_keys_released = self.piano_sets[set_idx].iter()
+                        .all(|&key_idx| !self.keys[key_idx].is_pressed);
+                        
+                    // 활성화된 세트인지 확인
+                    let is_active_set = self.active_set == Some(set_idx);
+                    
+                    // 활성화된 세트는 소리를 정지하지 않음
+                    if all_keys_released && !self.sustain && !is_active_set {
+                        // 모든 키의 소리 정지
+                        for &key_idx in &self.piano_sets[set_idx] {
+                            let key_base_name = self.keys[key_idx].full_name();
+                            
+                            // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                            let sounds_to_stop: Vec<String> = self.active_sounds.keys()
+                                .filter(|k| k.starts_with(&key_base_name))
+                                .cloned()
+                                .collect();
+                            
+                            for key_name in sounds_to_stop {
+                                // 맵에서 먼저 제거
+                                if let Some(audio) = self.active_sounds.remove(&key_name) {
+                                    let _ = audio.set_current_time(0.0);
+                                    let _ = audio.pause();
+                                    console::log_1(&format!("세트 키 {} 소리 정지", key_base_name).into());
+                                }
+                            }
+                        }
+                    } else {
+                        console::log_1(&format!("세트 {} 소리 정지 취소 (키가 다시 눌려있거나 서스테인 활성화됨 또는 활성 세트임)", set_idx).into());
+                    }
+                }
+                false
+            },
+            PianoMsg::StopSetKeySound(set_idx, key_idx) => {
+                // 키가 눌려있지 않고 서스테인이 꺼져 있을 때만 소리 정지
+                if set_idx < self.piano_sets.len() && key_idx < self.keys.len() {
+                    // 활성화된 세트인지 확인
+                    let is_active_set = self.active_set == Some(set_idx);
+                    
+                    if !self.keys[key_idx].is_pressed && !self.sustain && !is_active_set {
+                        let key_base_name = self.keys[key_idx].full_name();
+                            
+                        // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                        let sounds_to_stop: Vec<String> = self.active_sounds.keys()
+                            .filter(|k| k.starts_with(&key_base_name))
+                            .cloned()
+                            .collect();
+                        
+                        for key_name in sounds_to_stop {
+                            // 맵에서 먼저 제거
+                            if let Some(audio) = self.active_sounds.remove(&key_name) {
+                                let _ = audio.set_current_time(0.0);
+                                let _ = audio.pause();
+                                console::log_1(&format!("세트 키 {} 소리 정지", key_base_name).into());
+                            }
+                        }
+                    } else {
+                        console::log_1(&format!("세트 키 {} 소리 정지 취소 (키가 다시 눌려있거나 서스테인 활성화됨 또는 활성 세트임)", self.keys[key_idx].full_name()).into());
+                    }
+                }
+                false
+            },
+            PianoMsg::AddActiveSound(key_name, audio) => {
+                // active_sounds에 오디오 요소 추가
+                self.active_sounds.insert(key_name, audio);
+                false
+            },
+            PianoMsg::RemoveActiveSound(key_name) => {
+                // active_sounds에서 오디오 요소 제거
+                self.active_sounds.remove(&key_name);
+                false
+            },
+            PianoMsg::FadeOutSound(key_name, current_volume) => {
+                if let Some(audio) = self.active_sounds.get(&key_name) {
+                    // 볼륨 단계적으로 줄이기 (페이드아웃 속도 더 빠르게 조정)
+                    let new_volume = (current_volume - 0.1).max(0.0);
+                    audio.set_volume(new_volume);
+                    
+                    // 볼륨이 0에 도달하지 않았으면 계속 페이드아웃
+                    if new_volume > 0.0 {
+                        let key_name_clone = key_name.clone();
+                        let link = ctx.link().clone();
+                        
+                        // 페이드아웃 간격 더 짧게 조정 (30ms)
+                        let timeout = Timeout::new(30, move || {
+                            link.send_message(PianoMsg::FadeOutSound(key_name_clone, new_volume));
+                        });
+                        timeout.forget();
+                    } else {
+                        // 볼륨이 0에 도달하면 소리 정지
+                        ctx.link().send_message(PianoMsg::StopSound(key_name));
+                    }
+                }
+                false
+            },
         }
     }
 
@@ -874,10 +1138,22 @@ impl Component for PianoKeyboard {
                 
                 console::log_1(&format!("Key down: {}", key).into());
                 
-                // 세트 키(1-9, 0)인 경우 즉시 업데이트 요청하지 않음
+                // 세트 키(1-9, 0)인 경우 
                 let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
                 
-                link_down.send_message(PianoMsg::KeyboardKeyDown(key));
+                if is_set_key && !event.repeat() {
+                    let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
+                    console::log_1(&format!("세트 키 감지: 세트 {}", set_idx).into());
+                    
+                    // 먼저 KeyboardKeyDown 메시지를 보내 키 상태 업데이트
+                    link_down.send_message(PianoMsg::KeyboardKeyDown(key.clone()));
+                    
+                    // 세트 재생 메시지 전송 (마우스 로직과 동일하게 처리)
+                    link_down.send_message(PianoMsg::PlaySet(set_idx));
+                } else {
+                    // 일반 키보드 처리는 기존대로
+                    link_down.send_message(PianoMsg::KeyboardKeyDown(key));
+                }
                 
                 // 세트 키가 아닌 경우에만 즉시 상태 업데이트 요청
                 if !is_set_key {
@@ -909,9 +1185,25 @@ impl Component for PianoKeyboard {
                 event.stop_propagation();
                 
                 console::log_1(&format!("Key up: {}", key).into());
-                link_up.send_message(PianoMsg::KeyboardKeyUp(key));
                 
-                // 강제로 키 상태 업데이트 요청
+                // 세트 키(1-9, 0)인 경우
+                let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
+                
+                if is_set_key {
+                    let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
+                    console::log_1(&format!("세트 키 떼기: 세트 {}", set_idx).into());
+                    
+                    // 먼저 KeyboardKeyUp 메시지를 보내 키 상태 업데이트
+                    link_up.send_message(PianoMsg::KeyboardKeyUp(key.clone()));
+                    
+                    // 세트 해제 메시지 전송 (마우스 로직과 동일하게 처리)
+                    link_up.send_message(PianoMsg::ReleaseSet(set_idx));
+                } else {
+                    // 일반 키보드 처리는 기존대로
+                    link_up.send_message(PianoMsg::KeyboardKeyUp(key));
+                }
+                
+                // 상태 업데이트 요청
                 let link = link_up.clone();
                 let timeout = Timeout::new(10, move || {
                     link.send_message(PianoMsg::ForceKeyUpdate);
@@ -1715,6 +2007,65 @@ impl PianoKeyboard {
         }
         
         None
+    }
+    
+    // 특정 세트의 모든 소리 정지
+    fn stop_set_sounds(&mut self, set_idx: usize) {
+        if set_idx < self.piano_sets.len() {
+            // 먼저 세트의 모든 키가 눌려있지 않은지 다시 확인
+            let all_keys_released = self.piano_sets[set_idx].iter()
+                .all(|&key_idx| !self.keys[key_idx].is_pressed);
+                
+            if all_keys_released {
+                // 각 키의 소리 정지
+                for &key_idx in &self.piano_sets[set_idx] {
+                    let key_base_name = self.keys[key_idx].full_name();
+                    
+                    // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                    let sounds_to_stop: Vec<String> = self.active_sounds.keys()
+                        .filter(|k| k.starts_with(&key_base_name))
+                        .cloned()
+                        .collect();
+                    
+                    for key_name in sounds_to_stop {
+                        // 맵에서 먼저 제거
+                        if let Some(audio) = self.active_sounds.remove(&key_name) {
+                            let _ = audio.set_current_time(0.0);
+                            let _ = audio.pause();
+                        }
+                    }
+                }
+                
+                // 로그 출력
+                console::log_1(&format!("세트 {} 소리 모두 정지", set_idx).into());
+            } else {
+                console::log_1(&format!("세트 {} 소리 정지 취소 (키가 다시 눌려있음)", set_idx).into());
+            }
+        }
+    }
+    
+    // 특정 세트의 모든 소리 정리 (재생 유지하며 기존 소리만 제거)
+    fn clean_set_sounds(&mut self, set_idx: usize) {
+        if set_idx < self.piano_sets.len() {
+            // 각 키의 이전 소리만 제거 (현재 재생 중인 것은 유지)
+            for &key_idx in &self.piano_sets[set_idx] {
+                let key_base_name = self.keys[key_idx].full_name();
+                
+                // 해당 키에 관련된 모든 소리 찾기 (타임스탬프 무관)
+                let sounds_to_clean: Vec<String> = self.active_sounds.keys()
+                    .filter(|k| k.starts_with(&key_base_name))
+                    .cloned()
+                    .collect();
+                
+                for key_name in sounds_to_clean {
+                    // HashMap에서만 제거하고 pause 호출하지 않음
+                    if let Some(_) = self.active_sounds.remove(&key_name) {
+                        console::log_1(&format!("세트 {} 키 {} 이전 소리 정리", set_idx, key_idx).into());
+                    }
+                }
+            }
+            console::log_1(&format!("세트 {} 소리 정리 완료", set_idx).into());
+        }
     }
 }
 
