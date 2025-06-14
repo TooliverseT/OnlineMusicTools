@@ -4,8 +4,6 @@ body {
     padding: 0;
     background-color: #0f1419;
     color: #ffffff;
-    overflow-x: scroll;
-    overflow-y: scroll;
 }
 
 /* 전역 스크롤바 스타일 - 항상 표시 */
@@ -162,42 +160,30 @@ body {
     margin-left: 240px;
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    padding-top: 80px; /* 헤더 높이만큼 패딩 추가 */
 }
 
 .top-header-container {
     display: flex;
     justify-content: center;
     align-items: center;
+    position: fixed; /* 고정 위치 */
+    top: 0; /* 상단에 고정 */
+    left: 240px; /* 사이드바 너비만큼 왼쪽 여백 */
+    right: 0; /* 오른쪽 끝까지 */
+    z-index: 999; /* 다른 요소들 위에 표시 */
+    background-color: #1a1f2e; /* 배경색 추가 */
+    border-bottom: 1px solid #2a2f3e; /* 하단 테두리 */
 }
 
 /* 상단 헤더 스타일 */
 .top-header {
     background-color: #1a1f2e;
     padding: 16px 24px;
-    // // display: flex;
-    // // align-items: center;
-    // // justify-content: space-between;
     border-bottom: 1px solid #2a2f3e;
-    // // position: sticky;
-    // // top: 0;
-    // // z-index: 100;
-    // // width: 100%; /* 전체 너비 사용 */
-    // // box-sizing: border-box; /* 패딩 포함한 너비 계산 */
-    // // min-width: 0; /* flex 아이템이 축소될 수 있도록 */
-
-    // // height: 6.5vh;
-    // display: grid;
-    // grid-template-columns: 150px 20fr;
-    // // max-width: 960px;
-    // // padding-left: 30px;
-    // // padding-right: 30px;
-    // width: 100%;
 
     display: grid;
     grid-template-columns: 220px 20fr;
-    // padding-left: 30px;
-    // padding-right: 30px;
     width: 100%;
 }
 
@@ -473,6 +459,11 @@ body {
     
     .main-content {
         margin-left: 0;
+        padding-top: 73px; /* 헤더 높이만큼 패딩 유지 */
+    }
+    
+    .top-header-container {
+        left: 0; /* 모바일에서는 사이드바 너비 고려하지 않음 */
     }
     
     .mobile-menu-btn {

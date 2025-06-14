@@ -21,6 +21,8 @@ An interactive music visualization and training tool to help you master your mus
 
 ### 피치 플롯
 
+* 범위를 A0 ~ C8 까지 플롯할 수 있게
+
 ### 음파 생성기
 
 ### 메트로놈

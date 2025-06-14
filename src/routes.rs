@@ -53,6 +53,11 @@ pub fn sidebar() -> Html {
                     <span class="nav-text">{"Dashboard"}</span>
                 </Link<Route>>
                 
+                <Link<Route> to={Route::PitchControls} classes={classes!("nav-item", if current_route == Route::PitchControls { "active" } else { "" })}>
+                    <span class="nav-icon">{"🎛️"}</span>
+                    <span class="nav-text">{"Controller"}</span>
+                </Link<Route>>
+                
                 <Link<Route> to={Route::PitchPlot} classes={classes!("nav-item", if current_route == Route::PitchPlot { "active" } else { "" })}>
                     <span class="nav-icon">{"📊"}</span>
                     <span class="nav-text">{"Pitch Analyzer"}</span>
@@ -101,6 +106,7 @@ pub fn top_header(props: &TopHeaderProps) -> Html {
     
     let page_title = match current_route {
         Route::Home => "Dashboard",
+        Route::PitchControls => "Controller",
         Route::PitchPlot => "Pitch Analyzer",
         Route::AmplitudeVisualizer => "Amplitude Visualizer", 
         Route::Metronome => "Metronome",
@@ -237,7 +243,6 @@ pub fn pitch_controls_detail() -> Html {
                         <li>{"💾 다운로드 버튼: 녹음 파일을 저장할 수 있습니다."}</li>
                         <li>{"🎚️ 감도/스피커 게인: 마이크 감도와 스피커 볼륨을 조절할 수 있습니다."}</li>
                         <li>{"진행 바: 녹음/재생 위치를 확인하고 이동할 수 있습니다."}</li>
-                        <li>{"🔗 아이콘: 피치 컨트롤 상세 페이지로 이동하는 링크입니다."}</li>
                     </ul>
                     <p>{"각 버튼에 마우스를 올리면 기능 설명이 툴팁으로 표시됩니다."}</p>
                 </div>
@@ -1408,13 +1413,6 @@ pub fn pitch_controls() -> Html {
                             html! {}
                         }
                     }
-                </div>
-
-                // 상세 페이지 링크 버튼 추가
-                <div class="icon-button">
-                    <Link<Route> to={Route::PitchControls} classes={classes!("no-decoration")}>
-                        { "🔗" }
-                    </Link<Route>>
                 </div>
             </div>
         </div>
