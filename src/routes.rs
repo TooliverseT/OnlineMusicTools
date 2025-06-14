@@ -133,15 +133,23 @@ pub fn pitch_controls_detail() -> Html {
                 <Link<Route> to={Route::Home}>{"🏠 메인화면으로 돌아가기"}</Link<Route>>
             </div>
             <div class="content full-width">
-                <h2>{"피치 분석기"}</h2>
+                <h2>{"피치 컨트롤"}</h2>
                 <div class="analyzer-container">
-                    <PitchAnalyzer show_links={Some(false)} />
+                    <PitchControls />
                 </div>
                 <div class="description">
-                    <h3>{"피치 분석기 사용법"}</h3>
-                    <p>{"이 피치 분석기는 실시간으로 마이크 입력의 주파수를 분석하여 음악적 음높이를 표시합니다."}</p>
-                    <p>{"🎤 버튼을 클릭하여 마이크를 활성화하고 소리를 입력해보세요. 녹음된 소리는 재생 버튼을 통해 다시 들을 수 있습니다."}</p>
-                    <p>{"🎚️ 버튼을 클릭하면 감도를 조절할 수 있어 다양한 환경에서 최적의 분석 결과를 얻을 수 있습니다."}</p>
+                    <h3>{"피치 컨트롤 사용법"}</h3>
+                    <p>{"피치 컨트롤은 마이크 입력을 실시간으로 분석하고, 녹음, 재생, 감도 조절, 다운로드 등 다양한 기능을 제공합니다."}</p>
+                    <ul>
+                        <li>{"🎤 마이크 버튼: 마이크를 켜고 끌 수 있습니다."}</li>
+                        <li>{"🔊 모니터 버튼: 입력 소리를 스피커로 직접 들을 수 있습니다."}</li>
+                        <li>{"▶️ 재생 버튼: 녹음된 소리를 재생/일시정지합니다."}</li>
+                        <li>{"💾 다운로드 버튼: 녹음 파일을 저장할 수 있습니다."}</li>
+                        <li>{"🎚️ 감도/스피커 게인: 마이크 감도와 스피커 볼륨을 조절할 수 있습니다."}</li>
+                        <li>{"진행 바: 녹음/재생 위치를 확인하고 이동할 수 있습니다."}</li>
+                        <li>{"🔗 아이콘: 피치 컨트롤 상세 페이지로 이동하는 링크입니다."}</li>
+                    </ul>
+                    <p>{"각 버튼에 마우스를 올리면 기능 설명이 툴팁으로 표시됩니다."}</p>
                 </div>
             </div>
         </div>
@@ -1241,6 +1249,13 @@ pub fn pitch_controls() -> Html {
                             html! {}
                         }
                     }
+                </div>
+
+                // 상세 페이지 링크 버튼 추가
+                <div class="icon-button">
+                    <Link<Route> to={Route::PitchControls} classes={classes!("no-decoration")}>
+                        { "🔗" }
+                    </Link<Route>>
                 </div>
             </div>
         </div>
