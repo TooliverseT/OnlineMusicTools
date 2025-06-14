@@ -30,76 +30,144 @@ pub enum Route {
     NotFound,
 }
 
-// 네비게이션 바 컴포넌트
-#[function_component(Navbar)]
-pub fn navbar() -> Html {
+// 사이드바 컴포넌트
+#[function_component(Sidebar)]
+pub fn sidebar() -> Html {
+    let current_route = use_route::<Route>().unwrap_or(Route::Home);
+    
     html! {
-        <nav class="navbar">
-            <div class="navbar-container">
-                <Link<Route> classes={classes!("navbar-title")} to={Route::Home}>
-                    {"MusicalMind"}
-                </Link<Route>>
-                <div class="navbar-controls">
-                    <PitchControls />
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <div class="logo-circle"></div>
+                        <div class="logo-circle-overlay"></div>
+                    </div>
+                    <div class="logo-text">{"MusicalMind"}</div>
                 </div>
             </div>
-        </nav>
+            
+            <nav class="sidebar-nav">
+                <Link<Route> to={Route::Home} classes={classes!("nav-item", if current_route == Route::Home { "active" } else { "" })}>
+                    <span class="nav-icon">{"🏠"}</span>
+                    <span class="nav-text">{"Dashboard"}</span>
+                </Link<Route>>
+                
+                <Link<Route> to={Route::PitchPlot} classes={classes!("nav-item", if current_route == Route::PitchPlot { "active" } else { "" })}>
+                    <span class="nav-icon">{"📊"}</span>
+                    <span class="nav-text">{"Pitch Analyzer"}</span>
+                </Link<Route>>
+                
+                <Link<Route> to={Route::AmplitudeVisualizer} classes={classes!("nav-item", if current_route == Route::AmplitudeVisualizer { "active" } else { "" })}>
+                    <span class="nav-icon">{"📈"}</span>
+                    <span class="nav-text">{"Amplitude Visualizer"}</span>
+                </Link<Route>>
+                
+                <Link<Route> to={Route::Metronome} classes={classes!("nav-item", if current_route == Route::Metronome { "active" } else { "" })}>
+                    <span class="nav-icon">{"🥁"}</span>
+                    <span class="nav-text">{"Metronome"}</span>
+                </Link<Route>>
+                
+                <Link<Route> to={Route::ScaleGenerator} classes={classes!("nav-item", if current_route == Route::ScaleGenerator { "active" } else { "" })}>
+                    <span class="nav-icon">{"🎵"}</span>
+                    <span class="nav-text">{"Scale Generator"}</span>
+                </Link<Route>>
+                
+                <Link<Route> to={Route::PianoKeyboard} classes={classes!("nav-item", if current_route == Route::PianoKeyboard { "active" } else { "" })}>
+                    <span class="nav-icon">{"🎹"}</span>
+                    <span class="nav-text">{"Piano Keyboard"}</span>
+                </Link<Route>>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="nav-item logout">
+                    <span class="nav-icon">{"👤"}</span>
+                    <span class="nav-text">{"Profile"}</span>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+// 상단 헤더 컴포넌트
+#[derive(Properties, PartialEq)]
+pub struct TopHeaderProps {
+    pub on_mobile_menu_toggle: Callback<()>,
+}
+
+#[function_component(TopHeader)]
+pub fn top_header(props: &TopHeaderProps) -> Html {
+    let current_route = use_route::<Route>().unwrap_or(Route::Home);
+    
+    let page_title = match current_route {
+        Route::Home => "Dashboard",
+        Route::PitchPlot => "Pitch Analyzer",
+        Route::AmplitudeVisualizer => "Amplitude Visualizer", 
+        Route::Metronome => "Metronome",
+        Route::ScaleGenerator => "Scale Generator",
+        Route::PianoKeyboard => "Piano Keyboard",
+        _ => "Dashboard",
+    };
+    
+    let on_menu_click = {
+        let on_mobile_menu_toggle = props.on_mobile_menu_toggle.clone();
+        Callback::from(move |_| {
+            on_mobile_menu_toggle.emit(());
+        })
+    };
+    
+    html! {
+        <div class="top-header-container">
+            <div class="top-header">
+                <div class="header-left">
+                    <button class="mobile-menu-btn" onclick={on_menu_click}>
+                        <span class="hamburger"></span>
+                    </button>
+                    <h1 class="page-title">{page_title}</h1>
+                </div>
+                
+                <div class="header-right">
+                    
+                    
+                    // 기존 피치 컨트롤 유지
+                    <div class="pitch-controls-container">
+                        <PitchControls />
+                    </div>
+                </div>
+            </div>
+        </div>
     }
 }
 
 // 메인 레이아웃 컴포넌트
 #[function_component(MainLayout)]
 pub fn main_layout() -> Html {
-    let location = use_location().unwrap();
-    let route = Route::recognize(&location.path()).unwrap_or(Route::NotFound);
+    let route = use_route::<Route>().unwrap_or(Route::Home);
+    let is_mobile_menu_open = use_state(|| false);
     
-    // 라우트 변경 추적을 위한 이전 라우트 상태 추가
-    let prev_route = use_state(|| route.clone());
-    
-    // 라우트 변경 감지 및 마이크 비활성화 효과
+    // 페이지 변경 시 오디오 리소스 정리
     {
-        let current_route = route.clone();
-        let prev_route_state = prev_route.clone();
-        
-        use_effect(move || {
-            // 라우트가 변경되었는지 확인
-            if *prev_route_state != current_route {
-                // 이전 라우트 업데이트
-                prev_route_state.set(current_route.clone());
-                
-                // 마이크 비활성화 이벤트 발생 (페이지 이동 시)
-                let window = web_sys::window().expect("window를 찾을 수 없습니다");
-                let document = window.document().expect("document를 찾을 수 없습니다");
-                
-                // PitchAnalyzer 오디오 요소를 ID로 직접 찾아서 일시정지
-                if let Some(audio_element) = document.get_element_by_id("pitch-analyzer-audio") {
-                    if let Ok(audio) = audio_element.dyn_into::<web_sys::HtmlAudioElement>() {
-                        // 오디오가 재생 중인지 확인
-                        if !audio.paused() && !audio.ended() {
-                            // 일시정지 시도
-                            if let Err(err) = audio.pause() {
-                                web_sys::console::error_1(&format!("오디오 일시정지 실패: {:?}", err).into());
-                            } else {
-                                web_sys::console::log_1(&"라우트 변경 시 오디오 일시정지됨".into());
-                            }
-                        }
-                    }
+        let route = route.clone();
+        use_effect_with(
+            route,
+            move |_| {
+                // 페이지 변경 시 PitchAnalyzer 상태 초기화 이벤트 발생
+                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                    // ResetComponent 이벤트 발생 - 컴포넌트 완전 초기화
+                    let reset_event = web_sys::Event::new("resetPitchAnalyzer").unwrap();
+                    document.dispatch_event(&reset_event).unwrap();
+                    
+                    // StopAudioResources 이벤트 발생 - 모든 오디오 리소스 정리
+                    let stop_resources_event = web_sys::Event::new("stopAudioResources").unwrap();
+                    document.dispatch_event(&stop_resources_event).unwrap();
+                    
+                    web_sys::console::log_1(&format!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생").into());
                 }
                 
-                // 페이지 이동 시 PitchAnalyzer 전체 상태 초기화를 위한 이벤트 발생
-                let reset_event = web_sys::Event::new("resetPitchAnalyzer").unwrap();
-                document.dispatch_event(&reset_event).unwrap();
-                
-                // StopAudioResources 이벤트 발생 - 모든 오디오 리소스 정리
-                let stop_resources_event = web_sys::Event::new("stopAudioResources").unwrap();
-                document.dispatch_event(&stop_resources_event).unwrap();
-                
-                web_sys::console::log_1(&format!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생").into());
-            }
-            
-            // 클린업 함수
-            || {}
-        });
+                // 클린업 함수
+                || {}
+            },
+        );
     }
 
     // 현재 라우트에 따른 컨텐츠 선택
@@ -114,13 +182,35 @@ pub fn main_layout() -> Html {
         Route::NotFound => html! { <NotFound /> },
     };
 
+    let toggle_mobile_menu = {
+        let is_mobile_menu_open = is_mobile_menu_open.clone();
+        Callback::from(move |_| {
+            is_mobile_menu_open.set(!*is_mobile_menu_open);
+        })
+    };
+
+    let on_overlay_click = {
+        let is_mobile_menu_open = is_mobile_menu_open.clone();
+        Callback::from(move |_: MouseEvent| {
+            is_mobile_menu_open.set(false);
+        })
+    };
+
     html! {
-        <>
-            <Navbar />
-            <div class="app-container">
-                { content }
+        <div class={classes!("app-layout", if *is_mobile_menu_open { "mobile-menu-open" } else { "" })}>
+            <Sidebar />
+            <div class="main-content">
+                <TopHeader on_mobile_menu_toggle={toggle_mobile_menu.clone()} />
+                <main class="content-area">
+                    { content }
+                </main>
             </div>
-        </>
+            
+            // 모바일 오버레이
+            if *is_mobile_menu_open {
+                <div class="mobile-overlay" onclick={on_overlay_click}></div>
+            }
+        </div>
     }
 }
 

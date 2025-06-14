@@ -48,12 +48,12 @@ pub fn amplitude_visualizer(props: &AmplitudeVisualizerProps) -> Html {
                     let width = canvas.width() as f64;
                     let height = canvas.height() as f64;
                     
-                    // 배경 그리기
-                    ctx.set_fill_style(&"#001117".into());
+                    // 배경 그리기 - 피치 플롯과 동일한 배경색
+                    ctx.set_fill_style(&"#0f1419".into()); // 피치 플롯과 동일한 다크 퍼플 배경
                     ctx.fill_rect(0.0, 0.0, width, height);
                     
-                    // 그리드 그리기 (분홍색)
-                    ctx.set_stroke_style(&"#505050".into());
+                    // 그리드 그리기 - 피치 플롯과 동일한 그리드 색상
+                    ctx.set_stroke_style(&"#3a3f4e".into()); // 피치 플롯과 동일한 다크 퍼플 그리드
                     ctx.set_line_width(1.0);
                     
                     // 수평 그리드 선
@@ -77,7 +77,7 @@ pub fn amplitude_visualizer(props: &AmplitudeVisualizerProps) -> Html {
                     }
                     
                     // 색상 고정 - #9EF5CF (민트 그린)
-                    let primary_color = "#9EF5CF";
+                    let primary_color = "#8b9aff";
                     
                     // 진폭 데이터가 있으면 시각화
                     if let Some(amplitude_data) = amplitude_data {
@@ -156,8 +156,8 @@ pub fn amplitude_visualizer(props: &AmplitudeVisualizerProps) -> Html {
                         }
                     } else {
                         // 데이터가 없는 경우 안내 메시지 표시
-                        ctx.set_fill_style(&primary_color.into());
-                        ctx.set_font("20px sans-serif");
+                        ctx.set_fill_style(&"#8b92a5".into()); // 텍스트 색상도 보라색 계열로 변경
+                        ctx.set_font("20px Lexend, sans-serif"); // 폰트도 피치 플롯과 동일하게
                         ctx.set_text_align("center");
                         ctx.set_text_baseline("middle");
                         ctx.fill_text("마이크를 활성화하여 진폭을 측정하세요", width / 2.0, height / 2.0).unwrap();

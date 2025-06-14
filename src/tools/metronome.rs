@@ -739,7 +739,7 @@ impl Metronome {
             
             // 배경 지우기
             context.clear_rect(0.0, 0.0, width, height);
-            context.set_fill_style(&"#2a2a2a".into()); // 어두운 배경색
+            context.set_fill_style(&"#0f1419".into()); // 피치 플롯과 동일한 다크 퍼플 배경
             context.fill_rect(0.0, 0.0, width, height);
             
             // 현재 박자 정보
@@ -768,11 +768,15 @@ impl Metronome {
             let start_x = (width - row_width) / 2.0 + circle_radius;
             let center_y = height / 2.0; // 정확한 중앙에 배치
             
-            // 주 색상 정의 (민트색)
-            let mint_color = "#9EF5CF";
-            let inactive_color = "#7AD1AB"; // 기본 민트색 (더 옅은 버전)
-            let first_beat_color = "#9EF5CF"; // 첫 박자도 민트색으로
-            let dark_bg = "#1a2e35";
+            // 주 색상 정의 - 보라색 계열로 변경
+            let primary_color = if self.is_playing {
+                "#8b9aff" // 재생 중일 때는 밝은 보라색 (피치 플롯과 동일)
+            } else {
+                "#667eea" // 정지 상태일 때는 기본 보라색
+            };
+            let inactive_color = "#3a3f4e"; // 비활성 상태는 다크 퍼플 그리드 색상
+            let first_beat_color = "#8b9aff"; // 첫 박자는 핫핑크 (피치 플롯과 동일)
+            let dark_bg = "#2a2f3e"; // 테두리 색상도 보라색 계열로
             
             // 여러 행에 걸쳐 있을 경우 행간 간격 계산
             let rows_needed = (total_dots + max_per_row - 1) / max_per_row;
@@ -805,9 +809,9 @@ impl Metronome {
                         // 외부 글로우 효과
                         context.begin_path();
                         context.arc(x, y, circle_radius + 4.0, 0.0, std::f64::consts::PI * 2.0).unwrap();
-                        context.set_shadow_color(mint_color);
+                        context.set_shadow_color(primary_color);
                         context.set_shadow_blur(10.0);
-                        context.set_stroke_style(&mint_color.into());
+                        context.set_stroke_style(&primary_color.into());
                         context.set_line_width(2.0);
                         context.stroke();
                         context.set_shadow_blur(0.0); // 다음 그리기에 영향 없도록 초기화
@@ -819,7 +823,7 @@ impl Metronome {
                     
                     // 색상 설정 (첫 박, 각 박의 시작, 현재 위치, 일반)
                     if is_current {
-                        context.set_fill_style(&mint_color.into()); // 민트 그린 (하이라이트)
+                        context.set_fill_style(&primary_color.into()); // 민트 그린 (하이라이트)
                     } else if is_first_beat {
                         context.set_fill_style(&first_beat_color.into()); // 첫 박도 민트색 (더 옅게)
                         context.set_global_alpha(0.7); // 투명도 적용
@@ -866,7 +870,7 @@ impl Metronome {
                 // 펄스 효과 그리기
                 context.begin_path();
                 context.arc(x, y, pulse_radius, 0.0, std::f64::consts::PI * 2.0).unwrap();
-                context.set_stroke_style(&mint_color.into());
+                context.set_stroke_style(&primary_color.into());
                 context.set_line_width(2.0 * (1.0 - pulse_progress));
                 context.set_global_alpha(1.0 - pulse_progress);
                 context.stroke();

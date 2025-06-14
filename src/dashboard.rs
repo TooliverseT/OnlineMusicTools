@@ -65,20 +65,6 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                         >
                             <div class="dashboard-item-content" style="position: relative; width: 100%; height: 100%;">
                                 { item.component.clone() }
-                                {
-                                    // 링크 표시 여부에 따라 링크 아이콘 추가
-                                    if item.show_link && item.route.is_some() {
-                                        html! {
-                                            <div class="dashboard-item-link">
-                                                <Link<Route> to={item.route.clone().unwrap()}>
-                                                    { "🔗" }
-                                                </Link<Route>>
-                                            </div>
-                                        }
-                                    } else {
-                                        html! {}
-                                    }
-                                }
                             </div>
                         </div>
                     }

@@ -8,12 +8,10 @@ An interactive music visualization and training tool to help you master your mus
 
 ## TODO
 
-* 반응형
-* 모바일 모드(좌우 스크롤로 선택)
+* 반응형 -> 반응형으로 각 컴포넌트의 세부 스타일 지정
+
 * 영어로 변경
-* 전체 스타일 통합 및 정리
 * 릴리즈 형태로 변경
-* 상세페이지 링크 위치 또는 크기 변경
 * 로그 제거
 
 ### 제어반
