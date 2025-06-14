@@ -75,10 +75,10 @@ impl NoteUnit {
     // 음표 단위 표시 문자열 반환
     fn display_str(&self) -> String {
         match self {
-            NoteUnit::Quarter => "♩".to_string(),
-            NoteUnit::Eighth => "♪".to_string(),
-            NoteUnit::Triplet => "셋잇단음표".to_string(),
-            NoteUnit::Sixteenth => "16분음표".to_string(),
+            NoteUnit::Quarter => "Quarter Note (1/4)".to_string(),
+            NoteUnit::Eighth => "Eighth Note (1/8)".to_string(),
+            NoteUnit::Triplet => "Triplet (1/3)".to_string(),
+            NoteUnit::Sixteenth => "Sixteenth Note (1/16)".to_string(),
         }
     }
 }
@@ -94,6 +94,7 @@ pub enum MetronomeMsg {
     ToggleSound,
     UpdateCanvas,
     TapTempo,
+    ToggleAccent,
 }
 
 // 메트로놈 컴포넌트의 상태 정의
@@ -112,6 +113,7 @@ pub struct Metronome {
     last_update_time: f64,
     total_clicks: u32,
     tap_times: Vec<f64>,
+    accent_enabled: bool,
 }
 
 impl Component for Metronome {
@@ -134,6 +136,7 @@ impl Component for Metronome {
             last_update_time: 0.0,
             total_clicks: 0,
             tap_times: Vec::new(),
+            accent_enabled: true,
         }
     }
 
@@ -330,6 +333,9 @@ impl Component for Metronome {
                     
                     self.interval = Some(interval);
                 }
+
+                // UI 즉시 업데이트
+                self.draw_metronome();
                 
                 true
             },
@@ -459,6 +465,12 @@ impl Component for Metronome {
                 }
                 
                 false
+            },
+            
+            MetronomeMsg::ToggleAccent => {
+                self.accent_enabled = !self.accent_enabled;
+                
+                true
             }
         }
     }
@@ -593,6 +605,19 @@ impl Component for Metronome {
                                 >
                                     {if sound_enabled { "🔊" } else { "🔇" }}
                                 </button>
+
+                                <button 
+                                    class={if self.accent_enabled { "play-btn accent" } else { "play-btn no-accent" }}
+                                    onclick={ctx.link().callback(|_| MetronomeMsg::ToggleAccent)}
+                                >
+                                    {if self.accent_enabled { 
+                                        html! {
+                                            <span style="display: inline-block; transform: rotate(90deg); translate: 1px;">{">"}</span>
+                                        }
+                                    } else { 
+                                        html! {"="} 
+                                    }}
+                                </button>
                             </div>
                             
                             <div class="note-unit-controls">
@@ -610,10 +635,10 @@ impl Component for Metronome {
                                         MetronomeMsg::SetNoteUnit(NoteUnit::Quarter)
                                     }
                                 })}>
-                                    <option value="quarter" selected={note_unit == NoteUnit::Quarter}>{"♩"}</option>
-                                    <option value="eighth" selected={note_unit == NoteUnit::Eighth}>{"♪"}</option>
-                                    <option value="triplet" selected={note_unit == NoteUnit::Triplet}>{"셋잇단음표"}</option>
-                                    <option value="sixteenth" selected={note_unit == NoteUnit::Sixteenth}>{"16분음표"}</option>
+                                    <option value="quarter" selected={note_unit == NoteUnit::Quarter}>{"Quarter Note (1/4)"}</option>
+                                    <option value="eighth" selected={note_unit == NoteUnit::Eighth}>{"Eighth Note (1/8)"}</option>
+                                    <option value="triplet" selected={note_unit == NoteUnit::Triplet}>{"Triplet (1/3)"}</option>
+                                    <option value="sixteenth" selected={note_unit == NoteUnit::Sixteenth}>{"Sixteenth Note (1/16)"}</option>
                                 </select>
                             </div>
                         </div>
@@ -857,7 +882,7 @@ impl Metronome {
             // 오실레이터 노드 생성
             if let Ok(oscillator) = audio_ctx.create_oscillator() {
                 // 주 박자와 나머지 박자의 주파수 다르게 설정
-                if is_primary {
+                if is_primary && self.accent_enabled {
                     oscillator.frequency().set_value(1200.0); // 1200Hz (첫 박자용 더 높은 소리)
                 } else {
                     oscillator.frequency().set_value(800.0);  // 800Hz (일반 박자용)
@@ -872,7 +897,7 @@ impl Metronome {
                     gain.connect_with_audio_node(&audio_ctx.destination()).unwrap();
                     
                     // 볼륨 설정 (첫 박자는 조금 더 크게)
-                    if is_primary {
+                    if is_primary && self.accent_enabled {
                         gain.gain().set_value(0.3); // 첫 박자는 더 크게
                     } else {
                         gain.gain().set_value(0.2); // 일반 박자는 약간 작게
@@ -882,7 +907,7 @@ impl Metronome {
                     let current_time = audio_ctx.current_time();
                     
                     // 소리 길이 설정 (첫 박자는 조금 더 길게)
-                    let duration = if is_primary {
+                    let duration = if is_primary && self.accent_enabled {
                         0.05 // 첫 박자는 50ms로 길게
                     } else {
                         0.03 // 일반 박자는 30ms
@@ -890,7 +915,7 @@ impl Metronome {
                     
                     // 게인 엔벨로프 설정 (빠른 어택, 빠른 릴리즈)
                     gain.gain().set_value_at_time(0.0, current_time).unwrap();
-                    gain.gain().linear_ramp_to_value_at_time(if is_primary { 0.3 } else { 0.2 }, current_time + 0.005).unwrap();
+                    gain.gain().linear_ramp_to_value_at_time(if is_primary && self.accent_enabled { 0.3 } else { 0.2 }, current_time + 0.005).unwrap();
                     gain.gain().exponential_ramp_to_value_at_time(0.001, current_time + duration).unwrap();
                     
                     // 오실레이터 시작 및 중지 스케줄링

@@ -30,9 +30,6 @@ An interactive music visualization and training tool to help you master your mus
 
 ### 메트로놈
 
-* 음표 표시 변경
-* 악센트 제거 옵션
-
 ### 스케일 생성기
 
 ### 피아노
