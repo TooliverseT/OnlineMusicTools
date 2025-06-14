@@ -2021,3 +2021,69 @@ input[type='number'] {
 .no-decoration {
     text-decoration: none;
 }
+
+/* 다운로드 드롭다운 스타일 */
+.download-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.download-dropdown-content {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background-color: #1a2e35;
+    min-width: 120px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    z-index: 1000;
+    margin-top: 5px;
+    border: 1px solid #11282f;
+}
+
+.format-option {
+    padding: 8px 12px;
+    color: #d5d1a7;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    &:hover {
+        background-color: rgba(213, 209, 167, 0.1);
+    }
+
+    .format-text {
+        flex: 1;
+        
+        &.selected {
+            color: #9EF5CF;
+            font-weight: 500;
+            
+            &::before {
+                content: "✓";
+                margin-right: 8px;
+                color: #9EF5CF;
+            }
+        }
+    }
+}
+
+.download-separator {
+    height: 1px;
+    background-color: #11282f;
+    margin: 4px 0;
+}
+
+.save-option {
+    color: #9EF5CF;
+    font-weight: 500;
+    text-align: center;
+    justify-content: center;
+    
+    &:hover {
+        background-color: rgba(158, 245, 207, 0.1);
+    }
+}

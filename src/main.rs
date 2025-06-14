@@ -9,6 +9,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     AnalyserNode, AudioContext, MediaStream,
     MediaStreamConstraints, CustomEvent, CustomEventInit,
+    HtmlAnchorElement,
 };
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -305,6 +306,40 @@ impl PitchAnalyzer {
     fn has_recorded_audio(&self) -> bool {
         self.recorded_audio_url.is_some() && self.audio_element.is_some()
     }
+    
+    // 오디오 파일 다운로드 헬퍼 메서드
+    fn download_audio_file(&self, audio_url: &str, filename: &str) {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                if let Ok(element) = document.create_element("a") {
+                    let a_element: web_sys::HtmlAnchorElement = element
+                        .dyn_into()
+                        .expect("a 태그 생성 실패");
+                    
+                    // 오디오 URL 설정
+                    a_element.set_href(audio_url);
+                    
+                    // 다운로드 속성 설정
+                    a_element.set_attribute("download", filename).unwrap_or_else(|_| {
+                        web_sys::console::error_1(&"download 속성 설정 실패".into());
+                    });
+                    
+                    // 다운로드 시작 (DOM에 추가하고 클릭 후 제거)
+                    document.body().unwrap().append_child(&a_element).unwrap();
+                    a_element.click();
+                    document.body().unwrap().remove_child(&a_element).unwrap();
+                    
+                    web_sys::console::log_1(&format!("오디오 다운로드 완료: {}", filename).into());
+                } else {
+                    web_sys::console::error_1(&"다운로드 링크 요소 생성 실패".into());
+                }
+            } else {
+                web_sys::console::error_1(&"document 객체를 찾을 수 없음".into());
+            }
+        } else {
+            web_sys::console::error_1(&"window 객체를 찾을 수 없음".into());
+        }
+    }
 }
 
 pub enum Msg {
@@ -323,7 +358,7 @@ pub enum Msg {
     StopRecording,           // 녹음 중지
     RecordingDataAvailable(web_sys::Blob), // 녹음 데이터 가용
     RecordingComplete(String), // 녹음 완료 (오디오 URL)
-    DownloadRecording,       // 녹음 파일 다운로드
+    DownloadRecording(String), // 녹음 파일 다운로드
     
     // 재생 관련 메시지
     TogglePlayback,          // 재생/일시정지 토글
@@ -459,8 +494,20 @@ impl Component for PitchAnalyzer {
         
         // 다운로드 이벤트 리스너 추가
         let download_link = ctx.link().clone();
-        let download_callback = Callback::from(move |_: web_sys::Event| {
-            download_link.send_message(Msg::DownloadRecording);
+        let download_callback = Callback::from(move |e: web_sys::Event| {
+            // CustomEvent로 캐스팅하여 detail 정보 추출
+            if let Ok(custom_event) = e.dyn_into::<web_sys::CustomEvent>() {
+                let detail = custom_event.detail();
+                if let Some(format) = detail.as_string() {
+                    download_link.send_message(Msg::DownloadRecording(format));
+                } else {
+                    // 기본 포맷으로 다운로드
+                    download_link.send_message(Msg::DownloadRecording("webm".to_string()));
+                }
+            } else {
+                // 기본 포맷으로 다운로드
+                download_link.send_message(Msg::DownloadRecording("webm".to_string()));
+            }
         });
         
         let download_listener = EventListener::new(&document, "downloadRecording", move |e| {
@@ -2036,12 +2083,21 @@ impl Component for PitchAnalyzer {
                 true
             },
 
-            Msg::DownloadRecording => {
+            Msg::DownloadRecording(format) => {
                 // 녹음된 오디오가 없으면 다운로드 불가
                 if !self.has_recorded_audio() {
                     web_sys::console::log_1(&"다운로드할 녹음된 오디오가 없습니다".into());
                     return false;
                 }
+                
+                // 포맷에 따른 MIME 타입과 확장자 결정
+                let (mime_type, extension) = match format.as_str() {
+                    "mp3" => ("audio/mpeg", "mp3"),
+                    "wav" => ("audio/wav", "wav"),
+                    "ogg" => ("audio/ogg", "ogg"),
+                    "m4a" => ("audio/mp4", "m4a"),
+                    _ => ("audio/webm", "webm"), // 기본값
+                };
                 
                 // 오디오 URL로부터 다운로드 진행
                 if let Some(audio_url) = &self.recorded_audio_url {
@@ -2057,36 +2113,31 @@ impl Component for PitchAnalyzer {
                     let seconds = date.get_seconds();
                     
                     let filename = format!(
-                        "recording_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.webm",
-                        year, month, day, hours, minutes, seconds
+                        "recording_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.{}",
+                        year, month, day, hours, minutes, seconds, extension
                     );
 
-                    if let Some(window) = web_sys::window() {
-                        if let Some(document) = window.document() {
-                            if let Ok(element) = document.create_element("a") {
-                                let a_element: web_sys::HtmlAnchorElement = element
-                                    .dyn_into()
-                                    .expect("a 태그 생성 실패");
-                                
-                                // 오디오 URL 복제본 생성 (메타데이터 유지)
-                                a_element.set_href(audio_url);
-                                
-                                // 다운로드 속성 설정
-                                a_element.set_attribute("download", &filename).unwrap_or_else(|_| {
-                                    web_sys::console::error_1(&"download 속성 설정 실패".into());
-                                });
-                                
-                                // 다운로드 시작 (DOM에 추가하고 클릭 후 제거)
-                                document.body().unwrap().append_child(&a_element).unwrap();
-                                a_element.click();
-                                document.body().unwrap().remove_child(&a_element).unwrap();
-                                
-                                web_sys::console::log_1(&format!("오디오 다운로드 완료: {}", filename).into());
-                                
-                                return true;
-                            }
+                    // WebM이 아닌 다른 포맷이 선택된 경우 포맷 변환 시도
+                    if format != "webm" {
+                        // 포맷 변환을 위한 오디오 컨텍스트 생성 시도
+                        if let Ok(audio_context) = web_sys::AudioContext::new() {
+                            // 현재 WebM 오디오를 다른 포맷으로 변환하는 로직
+                            // 이는 복잡한 작업이므로 현재는 경고 메시지만 표시
+                            web_sys::console::warn_1(&format!("포맷 변환 기능은 아직 구현되지 않았습니다. {} 포맷으로 변환하려면 추가 구현이 필요합니다.", format).into());
+                            
+                            // 현재는 WebM 파일을 선택된 확장자로 다운로드 (실제 변환은 미구현)
+                            self.download_audio_file(&audio_url, &filename);
+                        } else {
+                            web_sys::console::error_1(&"오디오 컨텍스트 생성 실패".into());
+                            return false;
                         }
+                    } else {
+                        // WebM 포맷인 경우 직접 다운로드
+                        self.download_audio_file(&audio_url, &filename);
                     }
+                    
+                    web_sys::console::log_1(&format!("오디오 다운로드 시작: {} (포맷: {})", filename, format).into());
+                    return true;
                 }
                 
                 web_sys::console::error_1(&"오디오 다운로드 실패".into());

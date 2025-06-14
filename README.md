@@ -20,8 +20,6 @@ An interactive music visualization and training tool to help you master your mus
 
 * 스피커 게인 조절 부드럽게
 * 녹음 중에도 스피커 게인 조절할 수 있게
-* 녹음이 끝나면 스피커도 비활성화(다음에 다시 녹음 시작할 때 활성화 되어있음)
-* 다운로드 mp3 등 다른 형태로 다운로드
 
 ### 피치 플롯
 

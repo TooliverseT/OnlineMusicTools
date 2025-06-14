@@ -306,6 +306,8 @@ pub fn pitch_controls() -> Html {
     let is_playing = use_state(|| false);
     let has_recorded = use_state(|| true);
     let speaker_gain = use_state(|| 0.02f32);
+    let show_download_format = use_state(|| false); // 다운로드 포맷 드롭다운 표시 상태
+    let selected_format = use_state(|| "webm".to_string()); // 선택된 다운로드 포맷
     
     // 버튼 활성화/비활성화 상태 추가 - 로그를 통해 디버깅
     let buttons_disabled = use_state(|| false);
@@ -1121,11 +1123,34 @@ pub fn pitch_controls() -> Html {
         })
     };
 
-    // 다운로드 버튼 콜백 추가
-    let download_recording = {
+    // 다운로드 포맷 토글 콜백
+    let toggle_download_format = {
+        let show_download_format = show_download_format.clone();
         Callback::from(move |_| {
-            // 다운로드 이벤트 발생
-            let event = web_sys::Event::new("downloadRecording").unwrap();
+            show_download_format.set(!*show_download_format);
+        })
+    };
+
+    // 다운로드 포맷 선택 콜백
+    let select_download_format = {
+        let selected_format = selected_format.clone();
+        Callback::from(move |format: String| {
+            selected_format.set(format);
+        })
+    };
+
+    // 다운로드 실행 콜백
+    let execute_download = {
+        let selected_format = selected_format.clone();
+        let show_download_format = show_download_format.clone();
+        Callback::from(move |_| {
+            // 다운로드 이벤트 발생 (선택된 포맷 포함)
+            let event = CustomEvent::new_with_event_init_dict(
+                "downloadRecording",
+                CustomEventInit::new()
+                    .bubbles(true)
+                    .detail(&JsValue::from_str(&selected_format)),
+            ).unwrap();
             web_sys::window()
                 .unwrap()
                 .document()
@@ -1133,7 +1158,10 @@ pub fn pitch_controls() -> Html {
                 .dispatch_event(&event)
                 .unwrap();
             
-            web_sys::console::log_1(&"다운로드 이벤트 발행됨".into());
+            // 드롭다운 닫기
+            show_download_format.set(false);
+            
+            web_sys::console::log_1(&format!("다운로드 이벤트 발행됨 (포맷: {})", *selected_format).into());
         })
     };
 
@@ -1169,15 +1197,56 @@ pub fn pitch_controls() -> Html {
                     { if *is_playing { "⏸️" } else { "▶️" } }
                 </button>
                 
-                // 다운로드 버튼 추가
-                <button
-                    class="icon-button download-button"
-                    onclick={download_recording}
-                    title="녹음 파일 다운로드"
-                    disabled={*mic_active || !*has_recorded || *buttons_disabled}
-                >
-                    { "💾" }
-                </button>
+                // 다운로드 버튼과 드롭다운 수정
+                <div class="download-dropdown">
+                    <button
+                        class="icon-button download-button"
+                        onclick={toggle_download_format}
+                        title="녹음 파일 다운로드"
+                        disabled={*mic_active || !*has_recorded || *buttons_disabled}
+                    >
+                        { "💾" }
+                    </button>
+                    {
+                        if *show_download_format {
+                            html! {
+                                <div class="download-dropdown-content">
+                                    <div class="format-option" onclick={let f = "webm".to_string(); select_download_format.clone().reform(move |_| f.clone())}>
+                                        <span class={classes!("format-text", if *selected_format == "webm" { "selected" } else { "" })}>
+                                            {"WebM"}
+                                        </span>
+                                    </div>
+                                    <div class="format-option" onclick={let f = "mp3".to_string(); select_download_format.clone().reform(move |_| f.clone())}>
+                                        <span class={classes!("format-text", if *selected_format == "mp3" { "selected" } else { "" })}>
+                                            {"MP3"}
+                                        </span>
+                                    </div>
+                                    <div class="format-option" onclick={let f = "wav".to_string(); select_download_format.clone().reform(move |_| f.clone())}>
+                                        <span class={classes!("format-text", if *selected_format == "wav" { "selected" } else { "" })}>
+                                            {"WAV"}
+                                        </span>
+                                    </div>
+                                    <div class="format-option" onclick={let f = "ogg".to_string(); select_download_format.clone().reform(move |_| f.clone())}>
+                                        <span class={classes!("format-text", if *selected_format == "ogg" { "selected" } else { "" })}>
+                                            {"OGG"}
+                                        </span>
+                                    </div>
+                                    <div class="format-option" onclick={let f = "m4a".to_string(); select_download_format.clone().reform(move |_| f.clone())}>
+                                        <span class={classes!("format-text", if *selected_format == "m4a" { "selected" } else { "" })}>
+                                            {"M4A"}
+                                        </span>
+                                    </div>
+                                    <div class="download-separator"></div>
+                                    <div class="format-option save-option" onclick={execute_download}>
+                                        {"저장하기"}
+                                    </div>
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
+                </div>
                 
                 // 재생 게이지 바 추가
                 {
