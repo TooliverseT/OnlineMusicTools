@@ -154,26 +154,23 @@ pub fn main_layout() -> Html {
     // 페이지 변경 시 오디오 리소스 정리
     {
         let route = route.clone();
-        use_effect_with(
-            route,
-            move |_| {
-                // 페이지 변경 시 PitchAnalyzer 상태 초기화 이벤트 발생
-                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    // ResetComponent 이벤트 발생 - 컴포넌트 완전 초기화
-                    let reset_event = web_sys::Event::new("resetPitchAnalyzer").unwrap();
-                    document.dispatch_event(&reset_event).unwrap();
-                    
-                    // StopAudioResources 이벤트 발생 - 모든 오디오 리소스 정리
-                    let stop_resources_event = web_sys::Event::new("stopAudioResources").unwrap();
-                    document.dispatch_event(&stop_resources_event).unwrap();
-                    
-                    web_sys::console::log_1(&format!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생").into());
-                }
+        use_effect(move || {
+            // 페이지 변경 시 PitchAnalyzer 상태 초기화 이벤트 발생
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                // ResetComponent 이벤트 발생 - 컴포넌트 완전 초기화
+                let reset_event = web_sys::Event::new("resetPitchAnalyzer").unwrap();
+                document.dispatch_event(&reset_event).unwrap();
                 
-                // 클린업 함수
-                || {}
-            },
-        );
+                // StopAudioResources 이벤트 발생 - 모든 오디오 리소스 정리
+                let stop_resources_event = web_sys::Event::new("stopAudioResources").unwrap();
+                document.dispatch_event(&stop_resources_event).unwrap();
+                
+                web_sys::console::log_1(&format!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생").into());
+            }
+            
+            // 클린업 함수
+            || {}
+        });
     }
 
     // 현재 라우트에 따른 컨텐츠 선택
@@ -425,6 +422,14 @@ pub fn pitch_controls() -> Html {
             let is_playing_clone = is_playing.clone();
             let mic_active_clone = mic_active.clone();
             
+            // 기존 이벤트 리스너가 있다면 제거 (중복 방지)
+            let dummy_callback = Closure::wrap(Box::new(|_: web_sys::Event| {}) as Box<dyn FnMut(_)>);
+            let _ = document.remove_event_listener_with_callback(
+                "playbackEnded", 
+                dummy_callback.as_ref().unchecked_ref()
+            );
+            drop(dummy_callback);
+            
             let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
                 // 재생이 끝나면 재생 상태 변경 및 마이크 활성화
                 is_playing_clone.set(false);
@@ -436,11 +441,14 @@ pub fn pitch_controls() -> Html {
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
-            // 메모리 누수 방지를 위해 클로저 유지
-            callback.forget();
-            
-            // 클린업 함수
-            || {}
+            // 클린업 함수 - 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+            move || {
+                let _ = document.remove_event_listener_with_callback(
+                    "playbackEnded",
+                    callback.as_ref().unchecked_ref()
+                );
+                drop(callback);
+            }
         });
     }
     
@@ -458,6 +466,14 @@ pub fn pitch_controls() -> Html {
         use_effect(move || {
             let window = web_sys::window().expect("window를 찾을 수 없습니다");
             let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            // 기존 이벤트 리스너가 있다면 제거 (중복 방지)
+            let dummy_callback = Closure::wrap(Box::new(|_: web_sys::Event| {}) as Box<dyn FnMut(_)>);
+            let _ = document.remove_event_listener_with_callback(
+                "resetPitchAnalyzer", 
+                dummy_callback.as_ref().unchecked_ref()
+            );
+            drop(dummy_callback);
             
             let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
                 // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
@@ -478,21 +494,32 @@ pub fn pitch_controls() -> Html {
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
-            // 메모리 누수 방지를 위해 클로저 유지
-            callback.forget();
-            
-            // 클린업 함수
-            || {}
+            // 클린업 함수 - 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+            move || {
+                let _ = document.remove_event_listener_with_callback(
+                    "resetPitchAnalyzer",
+                    callback.as_ref().unchecked_ref()
+                );
+                drop(callback);
+            }
         });
     }
     
-    // 버튼 비활성화 이벤트 처리 - 기본 use_effect로 변경
+    // 버튼 비활성화 이벤트 처리
     {
         let buttons_disabled = buttons_disabled.clone();
     
         use_effect(move || {
             let window = web_sys::window().expect("window를 찾을 수 없습니다");
             let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            // 기존 이벤트 리스너가 있다면 제거 (중복 방지)
+            let dummy_callback = Closure::wrap(Box::new(|_: web_sys::Event| {}) as Box<dyn FnMut(_)>);
+            let _ = document.remove_event_listener_with_callback(
+                "disableControlButtons", 
+                dummy_callback.as_ref().unchecked_ref()
+            );
+            drop(dummy_callback);
             
             let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
                 // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
@@ -506,11 +533,14 @@ pub fn pitch_controls() -> Html {
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
-            // 메모리 누수 방지를 위해 클로저 유지
-            callback.forget();
-            
-            // 클린업 함수
-            || {}
+            // 클린업 함수 - 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+            move || {
+                let _ = document.remove_event_listener_with_callback(
+                    "disableControlButtons",
+                    callback.as_ref().unchecked_ref()
+                );
+                drop(callback);
+            }
         });
     }
 
@@ -520,6 +550,14 @@ pub fn pitch_controls() -> Html {
         use_effect(move || {
             let window = web_sys::window().expect("window를 찾을 수 없습니다");
             let document = window.document().expect("document를 찾을 수 없습니다");
+            
+            // 기존 이벤트 리스너가 있다면 제거 (중복 방지)
+            let dummy_callback = Closure::wrap(Box::new(|_: web_sys::Event| {}) as Box<dyn FnMut(_)>);
+            let _ = document.remove_event_listener_with_callback(
+                "enableControlButtons", 
+                dummy_callback.as_ref().unchecked_ref()
+            );
+            drop(dummy_callback);
             
             let callback = Closure::wrap(Box::new(move |_e: web_sys::Event| {
                 // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
@@ -533,11 +571,14 @@ pub fn pitch_controls() -> Html {
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
-            // 메모리 누수 방지를 위해 클로저 유지
-            callback.forget();
-            
-            // 클린업 함수
-            || {}
+            // 클린업 함수 - 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+            move || {
+                let _ = document.remove_event_listener_with_callback(
+                    "enableControlButtons",
+                    callback.as_ref().unchecked_ref()
+                );
+                drop(callback);
+            }
         });
     }
 
@@ -1091,12 +1132,19 @@ pub fn pitch_controls() -> Html {
                 state_callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
-            // 메모리 누수 방지를 위해 클로저 유지
-            playback_time_callback.forget();
-            state_callback.forget();
-            
-            // 클린업 함수
-            || {}
+            // 클린업 함수 - 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+            move || {
+                let _ = document.remove_event_listener_with_callback(
+                    "playbackTimeUpdate",
+                    playback_time_callback.as_ref().unchecked_ref()
+                );
+                let _ = document.remove_event_listener_with_callback(
+                    "playbackStateChange",
+                    state_callback.as_ref().unchecked_ref()
+                );
+                drop(playback_time_callback);
+                drop(state_callback);
+            }
         });
     }
 
@@ -1132,11 +1180,14 @@ pub fn pitch_controls() -> Html {
                 callback.as_ref().unchecked_ref()
             ).expect("이벤트 리스너 추가 실패");
             
-            // 메모리 누수 방지를 위해 클로저 유지
-            callback.forget();
-            
-            // 클린업 함수
-            || {}
+            // 클린업 함수 - 컴포넌트가 언마운트될 때 이벤트 리스너 제거
+            move || {
+                let _ = document.remove_event_listener_with_callback(
+                    "toggleAudio",
+                    callback.as_ref().unchecked_ref()
+                );
+                drop(callback);
+            }
         });
     }
 

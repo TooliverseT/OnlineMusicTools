@@ -114,7 +114,14 @@ pub struct PianoKeyboard {
     left_hand_start_note_idx: usize, // 왼손 시작 음 인덱스 (0 = C, 1 = C#, ...)
     right_hand_start_note_idx: usize, // 오른손 시작 음 인덱스
     pressed_keyboard_keys: HashMap<String, bool>, // 현재 눌려있는 키보드 키
-    _keyboard_listener: Option<(Closure<dyn FnMut(KeyboardEvent)>, Closure<dyn FnMut(KeyboardEvent)>)>, // 키보드 이벤트 리스너
+    _keyboard_listeners: Option<(
+        Closure<dyn FnMut(KeyboardEvent)>,  // keydown
+        Closure<dyn FnMut(KeyboardEvent)>,  // keyup
+        Closure<dyn FnMut(web_sys::Event)>, // blur
+        Closure<dyn FnMut(web_sys::FocusEvent)>, // focusout
+        Closure<dyn FnMut(web_sys::MouseEvent)>, // mouseleave
+        Closure<dyn FnMut(web_sys::Event)>, // visibilitychange
+    )>, // 키보드 이벤트 리스너들
     keyboard_input_enabled: bool,   // 키보드 입력 활성화 여부
     piano_sets: Vec<Vec<usize>>,    // 피아노 세트 (키 인덱스의 집합)
     set_edit_mode: bool,            // 세트 수정 모드 활성화 여부
@@ -222,7 +229,7 @@ impl Component for PianoKeyboard {
             left_hand_start_note_idx,
             right_hand_start_note_idx,
             pressed_keyboard_keys,
-            _keyboard_listener: None,
+            _keyboard_listeners: None,
             keyboard_input_enabled: false,
             piano_sets,
             set_edit_mode: false,
@@ -1114,169 +1121,46 @@ impl Component for PianoKeyboard {
     }
 
     fn rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
-        if first_render {
-            // 첫 렌더링 시 키보드 이벤트 리스너 등록
-            let document = web_sys::window().unwrap().document().unwrap();
-            
-            // 키 다운 이벤트 핸들러
-            let link_down = ctx.link().clone();
-            let keydown_callback = Closure::wrap(Box::new(move |event: KeyboardEvent| {
-                let key = event.key();
-                
-                // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
-                if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
-                    // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
-                    console::log_1(&format!("브라우저 기능키 감지: {}", key).into());
-                    // 단, 피아노 앱에서 사용하는 키는 처리
-                    link_down.send_message(PianoMsg::KeyboardKeyDown(key));
-                    return;
-                }
-                
-                // 그 외 일반 키는 기본 동작 방지(페이지 스크롤 등)
-                event.prevent_default();
-                event.stop_propagation();
-                
-                console::log_1(&format!("Key down: {}", key).into());
-                
-                // 세트 키(1-9, 0)인 경우 
-                let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
-                
-                if is_set_key && !event.repeat() {
-                    let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
-                    console::log_1(&format!("세트 키 감지: 세트 {}", set_idx).into());
-                    
-                    // 먼저 KeyboardKeyDown 메시지를 보내 키 상태 업데이트
-                    link_down.send_message(PianoMsg::KeyboardKeyDown(key.clone()));
-                    
-                    // 세트 재생 메시지 전송 (마우스 로직과 동일하게 처리)
-                    link_down.send_message(PianoMsg::PlaySet(set_idx));
-                } else {
-                    // 일반 키보드 처리는 기존대로
-                    link_down.send_message(PianoMsg::KeyboardKeyDown(key));
-                }
-                
-                // 세트 키가 아닌 경우에만 즉시 상태 업데이트 요청
-                if !is_set_key {
-                    // 강제로 키 상태 업데이트 요청
-                    let link = link_down.clone();
-                    let timeout = Timeout::new(10, move || {
-                        link.send_message(PianoMsg::ForceKeyUpdate);
-                    });
-                    timeout.forget();
-                }
-            }) as Box<dyn FnMut(KeyboardEvent)>);
-            
-            // 키 업 이벤트 핸들러
-            let link_up = ctx.link().clone();
-            let keyup_callback = Closure::wrap(Box::new(move |event: KeyboardEvent| {
-                let key = event.key();
-                
-                // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
-                if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
-                    // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
-                    console::log_1(&format!("브라우저 기능키 감지(키업): {}", key).into());
-                    // 단, 피아노 앱에서 사용하는 키는 처리
-                    link_up.send_message(PianoMsg::KeyboardKeyUp(key));
-                    return;
-                }
-                
-                // 그 외 일반 키는 기본 동작 방지
-                event.prevent_default();
-                event.stop_propagation();
-                
-                console::log_1(&format!("Key up: {}", key).into());
-                
-                // 세트 키(1-9, 0)인 경우
-                let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
-                
-                if is_set_key {
-                    let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
-                    console::log_1(&format!("세트 키 떼기: 세트 {}", set_idx).into());
-                    
-                    // 먼저 KeyboardKeyUp 메시지를 보내 키 상태 업데이트
-                    link_up.send_message(PianoMsg::KeyboardKeyUp(key.clone()));
-                    
-                    // 세트 해제 메시지 전송 (마우스 로직과 동일하게 처리)
-                    link_up.send_message(PianoMsg::ReleaseSet(set_idx));
-                } else {
-                    // 일반 키보드 처리는 기존대로
-                    link_up.send_message(PianoMsg::KeyboardKeyUp(key));
-                }
-                
-                // 상태 업데이트 요청
-                let link = link_up.clone();
-                let timeout = Timeout::new(10, move || {
-                    link.send_message(PianoMsg::ForceKeyUpdate);
-                });
-                timeout.forget();
-                
-                // 조금 더 지연된 두 번째 업데이트 요청
-                let link2 = link_up.clone();
-                let timeout2 = Timeout::new(100, move || {
-                    link2.send_message(PianoMsg::ForceKeyUpdate);
-                });
-                timeout2.forget();
-            }) as Box<dyn FnMut(KeyboardEvent)>);
-            
-            // 포커스/블러 이벤트 핸들러 추가
-            let link_blur = ctx.link().clone();
-            let blur_callback = Closure::wrap(Box::new(move |_event| {
-                // 윈도우가 포커스를 잃으면 모든 키 리셋
-                link_blur.send_message(PianoMsg::ResetAllKeys);
-            }) as Box<dyn FnMut(web_sys::Event)>);
-            
-            // 포커스 아웃 이벤트 핸들러 추가
-            let link_focus_out = ctx.link().clone();
-            let focus_out_callback = Closure::wrap(Box::new(move |_event| {
-                // 윈도우가 포커스를 잃으면 모든 키 리셋
-                link_focus_out.send_message(PianoMsg::ResetAllKeys);
-            }) as Box<dyn FnMut(web_sys::FocusEvent)>);
-
-            // 이벤트 리스너 등록
-            document.add_event_listener_with_callback("keydown", keydown_callback.as_ref().unchecked_ref())
-                .expect("이벤트 리스너 등록 실패");
-            document.add_event_listener_with_callback("keyup", keyup_callback.as_ref().unchecked_ref())
-                .expect("이벤트 리스너 등록 실패");
-                
-            // 윈도우 블러 이벤트 리스너 등록
-            let window = web_sys::window().unwrap();
-            window.add_event_listener_with_callback("blur", blur_callback.as_ref().unchecked_ref())
-                .expect("블러 이벤트 리스너 등록 실패");
-            document.add_event_listener_with_callback("focusout", focus_out_callback.as_ref().unchecked_ref())
-                .expect("포커스 아웃 이벤트 리스너 등록 실패");
-                
-            // 마우스가 영역을 벗어났을 때 키 리셋을 위한 이벤트 핸들러
-            let link_mouse_leave = ctx.link().clone();
-            let mouse_leave_callback = Closure::wrap(Box::new(move |_event| {
-                link_mouse_leave.send_message(PianoMsg::ResetAllKeys);
-            }) as Box<dyn FnMut(web_sys::MouseEvent)>);
-            
-            // 페이지 가시성 변경 이벤트 핸들러
-            let link_visibility = ctx.link().clone();
-            let visibility_callback = Closure::wrap(Box::new(move |_event| {
-                if let Some(document) = web_sys::window().unwrap().document() {
-                    if document.hidden() {
-                        link_visibility.send_message(PianoMsg::ResetAllKeys);
-                    }
-                }
-            }) as Box<dyn FnMut(web_sys::Event)>);
-            
-            document.add_event_listener_with_callback("visibilitychange", visibility_callback.as_ref().unchecked_ref())
-                .expect("가시성 변경 이벤트 리스너 등록 실패");
-            
-            // 리스너 보관 (메모리 누수 방지)
-            self._keyboard_listener = Some((keydown_callback, keyup_callback));
-            
-            // 이미 이벤트가 발생한 것처럼 처리해서 초기화
-            ctx.link().send_message(PianoMsg::ResetAllKeys);
-
-            // 주기적 상태 체크 타이머 추가
-            let link_timer = ctx.link().clone();
-            let timeout = Timeout::new(1000, move || {
-                link_timer.send_message(PianoMsg::ForceKeyUpdate);
-            });
-            timeout.forget();
+        if first_render && self._keyboard_listeners.is_none() {
+            // 첫 렌더링 시에만 키보드 이벤트 리스너 등록
+            self.setup_keyboard_listeners(ctx);
         }
+    }
+
+    fn destroy(&mut self, _ctx: &Context<Self>) {
+        // 컴포넌트가 파괴될 때 이벤트 리스너 정리
+        if let Some((keydown_closure, keyup_closure, blur_closure, focus_out_closure, mouse_leave_closure, visibility_change_closure)) = &self._keyboard_listeners {
+            let document = web_sys::window().unwrap().document().unwrap();
+            let window = web_sys::window().unwrap();
+            
+            // 이벤트 리스너 제거
+            let _ = document.remove_event_listener_with_callback(
+                "keydown", 
+                keydown_closure.as_ref().unchecked_ref()
+            );
+            let _ = document.remove_event_listener_with_callback(
+                "keyup", 
+                keyup_closure.as_ref().unchecked_ref()
+            );
+            let _ = window.remove_event_listener_with_callback(
+                "blur", 
+                blur_closure.as_ref().unchecked_ref()
+            );
+            let _ = document.remove_event_listener_with_callback(
+                "focusout", 
+                focus_out_closure.as_ref().unchecked_ref()
+            );
+            let _ = document.remove_event_listener_with_callback(
+                "visibilitychange", 
+                visibility_change_closure.as_ref().unchecked_ref()
+            );
+        }
+        
+        // 모든 활성 소리 정지
+        for (_, audio) in &self.active_sounds {
+            let _ = audio.pause();
+        }
+        self.active_sounds.clear();
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
@@ -2066,6 +1950,171 @@ impl PianoKeyboard {
             }
             console::log_1(&format!("세트 {} 소리 정리 완료", set_idx).into());
         }
+    }
+
+    // 키보드 이벤트 리스너 설정
+    fn setup_keyboard_listeners(&mut self, ctx: &Context<Self>) {
+        // 첫 렌더링 시 키보드 이벤트 리스너 등록
+        let document = web_sys::window().unwrap().document().unwrap();
+        
+        // 키 다운 이벤트 핸들러
+        let link_down = ctx.link().clone();
+        let keydown_callback = Closure::wrap(Box::new(move |event: KeyboardEvent| {
+            let key = event.key();
+            
+            // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
+            if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
+                // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
+                console::log_1(&format!("브라우저 기능키 감지: {}", key).into());
+                // 단, 피아노 앱에서 사용하는 키는 처리
+                link_down.send_message(PianoMsg::KeyboardKeyDown(key));
+                return;
+            }
+            
+            // 그 외 일반 키는 기본 동작 방지(페이지 스크롤 등)
+            event.prevent_default();
+            event.stop_propagation();
+            
+            console::log_1(&format!("Key down: {}", key).into());
+            
+            // 세트 키(1-9, 0)인 경우 
+            let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
+            
+            if is_set_key && !event.repeat() {
+                let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
+                console::log_1(&format!("세트 키 감지: 세트 {}", set_idx).into());
+                
+                // 먼저 KeyboardKeyDown 메시지를 보내 키 상태 업데이트
+                link_down.send_message(PianoMsg::KeyboardKeyDown(key.clone()));
+                
+                // 세트 재생 메시지 전송 (마우스 로직과 동일하게 처리)
+                link_down.send_message(PianoMsg::PlaySet(set_idx));
+            } else {
+                // 일반 키보드 처리는 기존대로
+                link_down.send_message(PianoMsg::KeyboardKeyDown(key));
+            }
+            
+            // 세트 키가 아닌 경우에만 즉시 상태 업데이트 요청
+            if !is_set_key {
+                // 강제로 키 상태 업데이트 요청
+                let link = link_down.clone();
+                let timeout = Timeout::new(10, move || {
+                    link.send_message(PianoMsg::ForceKeyUpdate);
+                });
+                timeout.forget();
+            }
+        }) as Box<dyn FnMut(KeyboardEvent)>);
+        
+        // 키 업 이벤트 핸들러
+        let link_up = ctx.link().clone();
+        let keyup_callback = Closure::wrap(Box::new(move |event: KeyboardEvent| {
+            let key = event.key();
+            
+            // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
+            if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
+                // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
+                console::log_1(&format!("브라우저 기능키 감지(키업): {}", key).into());
+                // 단, 피아노 앱에서 사용하는 키는 처리
+                link_up.send_message(PianoMsg::KeyboardKeyUp(key));
+                return;
+            }
+            
+            // 그 외 일반 키는 기본 동작 방지
+            event.prevent_default();
+            event.stop_propagation();
+            
+            console::log_1(&format!("Key up: {}", key).into());
+            
+            // 세트 키(1-9, 0)인 경우
+            let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
+            
+            if is_set_key {
+                let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
+                console::log_1(&format!("세트 키 떼기: 세트 {}", set_idx).into());
+                
+                // 먼저 KeyboardKeyUp 메시지를 보내 키 상태 업데이트
+                link_up.send_message(PianoMsg::KeyboardKeyUp(key.clone()));
+                
+                // 세트 해제 메시지 전송 (마우스 로직과 동일하게 처리)
+                link_up.send_message(PianoMsg::ReleaseSet(set_idx));
+            } else {
+                // 일반 키보드 처리는 기존대로
+                link_up.send_message(PianoMsg::KeyboardKeyUp(key));
+            }
+            
+            // 상태 업데이트 요청
+            let link = link_up.clone();
+            let timeout = Timeout::new(10, move || {
+                link.send_message(PianoMsg::ForceKeyUpdate);
+            });
+            timeout.forget();
+            
+            // 조금 더 지연된 두 번째 업데이트 요청
+            let link2 = link_up.clone();
+            let timeout2 = Timeout::new(100, move || {
+                link2.send_message(PianoMsg::ForceKeyUpdate);
+            });
+            timeout2.forget();
+        }) as Box<dyn FnMut(KeyboardEvent)>);
+        
+        // 포커스/블러 이벤트 핸들러 추가
+        let link_blur = ctx.link().clone();
+        let blur_callback = Closure::wrap(Box::new(move |_event| {
+            // 윈도우가 포커스를 잃으면 모든 키 리셋
+            link_blur.send_message(PianoMsg::ResetAllKeys);
+        }) as Box<dyn FnMut(web_sys::Event)>);
+        
+        // 포커스 아웃 이벤트 핸들러 추가
+        let link_focus_out = ctx.link().clone();
+        let focus_out_callback = Closure::wrap(Box::new(move |_event| {
+            // 윈도우가 포커스를 잃으면 모든 키 리셋
+            link_focus_out.send_message(PianoMsg::ResetAllKeys);
+        }) as Box<dyn FnMut(web_sys::FocusEvent)>);
+
+        // 이벤트 리스너 등록
+        document.add_event_listener_with_callback("keydown", keydown_callback.as_ref().unchecked_ref())
+            .expect("이벤트 리스너 등록 실패");
+        document.add_event_listener_with_callback("keyup", keyup_callback.as_ref().unchecked_ref())
+            .expect("이벤트 리스너 등록 실패");
+            
+        // 윈도우 블러 이벤트 리스너 등록
+        let window = web_sys::window().unwrap();
+        window.add_event_listener_with_callback("blur", blur_callback.as_ref().unchecked_ref())
+            .expect("블러 이벤트 리스너 등록 실패");
+        document.add_event_listener_with_callback("focusout", focus_out_callback.as_ref().unchecked_ref())
+            .expect("포커스 아웃 이벤트 리스너 등록 실패");
+            
+        // 마우스가 영역을 벗어났을 때 키 리셋을 위한 이벤트 핸들러
+        let link_mouse_leave = ctx.link().clone();
+        let mouse_leave_callback = Closure::wrap(Box::new(move |_event| {
+            link_mouse_leave.send_message(PianoMsg::ResetAllKeys);
+        }) as Box<dyn FnMut(web_sys::MouseEvent)>);
+        
+        // 페이지 가시성 변경 이벤트 핸들러
+        let link_visibility = ctx.link().clone();
+        let visibility_callback = Closure::wrap(Box::new(move |_event| {
+            if let Some(document) = web_sys::window().unwrap().document() {
+                if document.hidden() {
+                    link_visibility.send_message(PianoMsg::ResetAllKeys);
+                }
+            }
+        }) as Box<dyn FnMut(web_sys::Event)>);
+        
+        document.add_event_listener_with_callback("visibilitychange", visibility_callback.as_ref().unchecked_ref())
+            .expect("가시성 변경 이벤트 리스너 등록 실패");
+        
+        // 리스너 보관 (메모리 누수 방지)
+        self._keyboard_listeners = Some((keydown_callback, keyup_callback, blur_callback, focus_out_callback, mouse_leave_callback, visibility_callback));
+        
+        // 이미 이벤트가 발생한 것처럼 처리해서 초기화
+        ctx.link().send_message(PianoMsg::ResetAllKeys);
+
+        // 주기적 상태 체크 타이머 추가
+        let link_timer = ctx.link().clone();
+        let timeout = Timeout::new(1000, move || {
+            link_timer.send_message(PianoMsg::ForceKeyUpdate);
+        });
+        timeout.forget();
     }
 }
 
