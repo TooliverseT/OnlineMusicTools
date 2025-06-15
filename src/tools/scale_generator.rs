@@ -4,6 +4,32 @@ use yew::prelude::*;
 use std::collections::HashMap;
 use gloo_timers::callback::Timeout;
 use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
+
+// 조건부 로그 매크로 정의
+#[cfg(debug_assertions)]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_error {
+    ($($arg:tt)*) => {
+        web_sys::console::error_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_error {
+    ($($arg:tt)*) => {};
+}
 
 // 옥타브를 포함한 음 이름을 표현하는 구조체
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,11 +271,11 @@ impl Component for ScaleGenerator {
                     // 오디오 컨텍스트 초기화
                     match AudioContext::new() {
                         Ok(ctx) => {
-                            web_sys::console::log_1(&"오디오 컨텍스트 초기화 성공".into());
+                            console_log!("오디오 컨텍스트 초기화 성공");
                             self.audio_ctx = Some(ctx);
                         }
                         Err(err) => {
-                            web_sys::console::error_1(&format!("오디오 컨텍스트 초기화 실패: {:?}", err).into());
+                            console_error!("오디오 컨텍스트 초기화 실패: {:?}", err);
                             return false;
                         }
                     }
@@ -396,11 +422,11 @@ impl Component for ScaleGenerator {
                 if self.audio_ctx.is_none() {
                     match AudioContext::new() {
                         Ok(ctx) => {
-                            web_sys::console::log_1(&"오디오 컨텍스트 초기화 성공".into());
+                            console_log!("오디오 컨텍스트 초기화 성공");
                             self.audio_ctx = Some(ctx);
                         }
                         Err(err) => {
-                            web_sys::console::error_1(&format!("오디오 컨텍스트 초기화 실패: {:?}", err).into());
+                            console_error!("오디오 컨텍스트 초기화 실패: {:?}", err);
                         }
                     }
                 }
@@ -856,7 +882,7 @@ impl ScaleGenerator {
         let audio_element = match document.create_element("audio") {
             Ok(element) => element,
             Err(err) => {
-                web_sys::console::error_1(&format!("오디오 요소 생성 실패: {:?}", err).into());
+                console_error!("오디오 요소 생성 실패: {:?}", err);
                 return;
             }
         };
@@ -883,10 +909,10 @@ impl ScaleGenerator {
         
         // 오디오 재생
         if let Err(err) = audio_element.play() {
-            web_sys::console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+            console_error!("오디오 재생 실패: {:?}", err);
         } else {
-            web_sys::console::log_1(&format!("피아노 노트 재생: {} (파일: {})",
-                note.full_name(), piano_file_path).into());
+            console_log!("피아노 노트 재생: {} (파일: {})",
+                note.full_name(), piano_file_path);
                 
             // 이전 오디오가 있다면, 새 오디오가 재생된 후 0.1초 후에 중지
             if let Some(prev) = prev_audio {

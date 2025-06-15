@@ -5,6 +5,43 @@ use yew::prelude::*;
 use gloo_timers::callback::Interval;
 use js_sys::Date;
 
+// 조건부 로그 매크로 정의
+#[cfg(debug_assertions)]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_error {
+    ($($arg:tt)*) => {
+        web_sys::console::error_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_error {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_warn {
+    ($($arg:tt)*) => {
+        web_sys::console::warn_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_warn {
+    ($($arg:tt)*) => {};
+}
+
 // 인라인 스타일 제거
 
 // 박자 정보를 나타내는 열거형
@@ -159,18 +196,18 @@ impl Component for Metronome {
                         match AudioContext::new() {
                             Ok(context) => {
                                 self.audio_ctx = Some(context);
-                                web_sys::console::log_1(&"오디오 컨텍스트 생성 성공".into());
+                                console_log!("오디오 컨텍스트 생성 성공");
                             },
                             Err(err) => {
-                                web_sys::console::error_1(&format!("오디오 컨텍스트 생성 실패: {:?}", err).into());
+                                console_error!("오디오 컨텍스트 생성 실패: {:?}", err);
                             }
                         }
                     } else if let Some(context) = &self.audio_ctx {
                         // 이미 컨텍스트가 있는 경우 재개
                         if let Err(err) = context.resume() {
-                            web_sys::console::error_1(&format!("오디오 컨텍스트 재개 실패: {:?}", err).into());
+                            console_error!("오디오 컨텍스트 재개 실패: {:?}", err);
                         } else {
-                            web_sys::console::log_1(&"오디오 컨텍스트 재개됨".into());
+                            console_log!("오디오 컨텍스트 재개됨");
                         }
                     }
                 }
@@ -262,7 +299,7 @@ impl Component for Metronome {
                                 self.audio_ctx = Some(context);
                             },
                             Err(err) => {
-                                web_sys::console::error_1(&format!("오디오 컨텍스트 생성 실패: {:?}", err).into());
+                                console_error!("오디오 컨텍스트 생성 실패: {:?}", err);
                             }
                         }
                     }
@@ -387,7 +424,7 @@ impl Component for Metronome {
                                 self.audio_ctx = Some(context);
                             },
                             Err(err) => {
-                                web_sys::console::error_1(&format!("오디오 컨텍스트 생성 실패: {:?}", err).into());
+                                console_error!("오디오 컨텍스트 생성 실패: {:?}", err);
                             }
                         }
                     }
@@ -930,7 +967,7 @@ impl Metronome {
         } else if self.sound_enabled && self.is_playing {
             // 오디오 컨텍스트가 없지만 소리가 활성화되어 있고 재생 중이라면
             // 오디오 컨텍스트 생성을 시도하는 대신 경고 메시지만 출력
-            web_sys::console::warn_1(&"오디오 컨텍스트가 없어 소리를 재생할 수 없습니다.".into());
+            console_warn!("오디오 컨텍스트가 없어 소리를 재생할 수 없습니다.");
         }
     }
 } 

@@ -1,12 +1,38 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{self, CustomEvent, CustomEventInit};
+use wasm_bindgen::JsCast;
+use web_sys::{self, CustomEvent, CustomEventInit, HtmlElement, MouseEvent, TouchEvent, Event};
 use yew::prelude::*;
 use yew_router::prelude::*;
 use std::collections::VecDeque;
+use gloo::events::EventListener;
+use gloo::utils::window;
 
 use crate::PitchAnalyzer;
 
-use log::info;
+// 조건부 로그 매크로 정의
+#[cfg(debug_assertions)]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_error {
+    ($($arg:tt)*) => {
+        web_sys::console::error_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_error {
+    ($($arg:tt)*) => {};
+}
 
 // 애플리케이션의 라우트 정의
 #[derive(Clone, Routable, PartialEq)]
@@ -84,12 +110,12 @@ pub fn sidebar() -> Html {
                 </Link<Route>>
             </nav>
             
-            <div class="sidebar-footer">
-                <div class="nav-item logout">
-                    <span class="nav-icon">{"👤"}</span>
-                    <span class="nav-text">{"Profile"}</span>
-                </div>
-            </div>
+            // <div class="sidebar-footer">
+            //     <div class="nav-item logout">
+            //         <span class="nav-icon">{"👤"}</span>
+            //         <span class="nav-text">{"Profile"}</span>
+            //     </div>
+            // </div>
         </div>
     }
 }
@@ -165,7 +191,7 @@ pub fn main_layout() -> Html {
                 let stop_resources_event = web_sys::Event::new("stopAudioResources").unwrap();
                 document.dispatch_event(&stop_resources_event).unwrap();
                 
-                web_sys::console::log_1(&format!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생").into());
+                console_log!("페이지 이동 감지: 마이크 비활성화 및 PitchAnalyzer 상태 초기화 이벤트 발생");
             }
             
             // 클린업 함수
@@ -237,7 +263,7 @@ pub fn pitch_controls_detail() -> Html {
                         <li>{"🎤 마이크 버튼: 마이크를 켜고 끌 수 있습니다."}</li>
                         <li>{"🔊 모니터 버튼: 입력 소리를 스피커로 직접 들을 수 있습니다."}</li>
                         <li>{"▶️ 재생 버튼: 녹음된 소리를 재생/일시정지합니다."}</li>
-                        <li>{"💾 다운로드 버튼: 녹음 파일을 저장할 수 있습니다."}</li>
+                        <li>{"�� 다운로드 버튼: 녹음 파일을 저장할 수 있습니다."}</li>
                         <li>{"🎚️ 감도/스피커 게인: 마이크 감도와 스피커 볼륨을 조절할 수 있습니다."}</li>
                         <li>{"진행 바: 녹음/재생 위치를 확인하고 이동할 수 있습니다."}</li>
                     </ul>
@@ -486,7 +512,7 @@ pub fn pitch_controls() -> Html {
                 progress.set(0.0);
                 is_seeking.set(false);
                 
-                web_sys::console::log_1(&"[PitchControls] 컨트롤 상태가 초기화되었습니다".into());
+                console_log!("컨트롤 상태가 초기화되었습니다");
             }) as Box<dyn FnMut(_)>);
             
             document.add_event_listener_with_callback(
@@ -525,7 +551,7 @@ pub fn pitch_controls() -> Html {
                 // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
                 buttons_disabled.set(true);
                 
-                web_sys::console::log_1(&"[PitchControls] 컨트롤 버튼이 비활성화되었습니다 (이벤트 핸들러)".into());
+                console_log!("컨트롤 버튼이 비활성화되었습니다 (이벤트 핸들러)");
             }) as Box<dyn FnMut(_)>);
             
             document.add_event_listener_with_callback(
@@ -563,7 +589,7 @@ pub fn pitch_controls() -> Html {
                 // 컨트롤 상태 초기화 (PitchAnalyzer가 초기화될 때 함께 초기화)
                 buttons_disabled.set(false);
                 
-                web_sys::console::log_1(&"[PitchControls] 컨트롤 버튼이 활성화되었습니다 (이벤트 핸들러)".into());
+                console_log!("컨트롤 버튼이 활성화되었습니다 (이벤트 핸들러)");
             }) as Box<dyn FnMut(_)>);
             
             document.add_event_listener_with_callback(
@@ -863,7 +889,7 @@ pub fn pitch_controls() -> Html {
             is_seeking.set(true);
             
             // 마우스 이벤트 기록 (디버깅용)
-            web_sys::console::log_1(&"마우스 드래그 시작".into());
+            console_log!("마우스 드래그 시작");
             
             // 바로 클릭 위치에 게이지 위치 업데이트
             if let Some(target) = e.target() {
@@ -922,7 +948,7 @@ pub fn pitch_controls() -> Html {
                         10, // 10ms 지연
                     );
                     
-                    web_sys::console::log_1(&format!("클릭 위치: {:.2}, 게이지 값: {:.3}", rel_x, value).into());
+                    console_log!("클릭 위치: {:.2}, 게이지 값: {:.3}", rel_x, value);
                 }
             }
         })
@@ -934,7 +960,7 @@ pub fn pitch_controls() -> Html {
             is_seeking.set(false);
             
             // 마우스 이벤트 기록 (디버깅용)
-            web_sys::console::log_1(&"마우스 드래그 종료".into());
+            console_log!("마우스 드래그 종료");
             
             // 드래그 종료 시 강제로 DOM 업데이트 이벤트 발생
             if let Some(target) = e.target() {
@@ -1014,7 +1040,7 @@ pub fn pitch_controls() -> Html {
                                 .detail(&JsValue::from_f64(value)),
                         ).unwrap();
                         
-                        // 6. 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
+                        // 이벤트 발생 (main.rs에서 SeekPlayback 메시지 처리)
                         let _ = document.dispatch_event(&custom_event);
                         
                         // 7. 약간의 지연 후 강제로 DOM 업데이트 (closure 사용)
@@ -1172,7 +1198,7 @@ pub fn pitch_controls() -> Html {
                     has_recorded.set(true);
                 }
                 
-                web_sys::console::log_1(&format!("서버에서 보낸 toggleAudio 이벤트 처리: new_state={}", new_state).into());
+                console_log!("서버에서 보낸 toggleAudio 이벤트 처리: new_state={}", new_state);
             }) as Box<dyn FnMut(_)>);
             
             document.add_event_listener_with_callback(
@@ -1263,7 +1289,7 @@ pub fn pitch_controls() -> Html {
                         10, // 10ms 지연
                     );
                     
-                    web_sys::console::log_1(&format!("마우스 이동: {:.2}, 게이지 값: {:.3}", rel_x, value).into());
+                    console_log!("마우스 이동: {:.2}, 게이지 값: {:.3}", rel_x, value);
                 }
             }
         })
@@ -1307,13 +1333,11 @@ pub fn pitch_controls() -> Html {
             // 드롭다운 닫기
             show_download_format.set(false);
             
-            web_sys::console::log_1(&format!("다운로드 이벤트 발행됨 (포맷: {})", *selected_format).into());
+            console_log!("다운로드 이벤트 발행됨 (포맷: {})", *selected_format);
         })
     };
 
     let buttons_disabled = buttons_disabled.clone();
-    info!("buttons_disabled: {}", *buttons_disabled);
-
     html! {
         <div class="pitch-controls navbar-item">
             <div class="navbar-controls-buttons">

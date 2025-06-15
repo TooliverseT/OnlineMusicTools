@@ -2,7 +2,6 @@ use crate::dashboard::{Dashboard, DashboardItem, DashboardLayout};
 use crate::routes::{switch, Route};
 use gloo::events::EventListener;
 use js_sys::{Object};
-use log::info;
 use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -13,6 +12,43 @@ use web_sys::{
 };
 use yew::prelude::*;
 use yew_router::prelude::*;
+
+// 조건부 로그 매크로 정의
+#[cfg(debug_assertions)]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_error {
+    ($($arg:tt)*) => {
+        web_sys::console::error_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_error {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_warn {
+    ($($arg:tt)*) => {
+        web_sys::console::warn_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_warn {
+    ($($arg:tt)*) => {};
+}
 
 // tools 모듈 선언
 mod tools {
@@ -321,7 +357,7 @@ impl PitchAnalyzer {
                     
                     // 다운로드 속성 설정
                     a_element.set_attribute("download", filename).unwrap_or_else(|_| {
-                        web_sys::console::error_1(&"download 속성 설정 실패".into());
+                        console_error!("download 속성 설정 실패");
                     });
                     
                     // 다운로드 시작 (DOM에 추가하고 클릭 후 제거)
@@ -329,15 +365,15 @@ impl PitchAnalyzer {
                     a_element.click();
                     document.body().unwrap().remove_child(&a_element).unwrap();
                     
-                    web_sys::console::log_1(&format!("오디오 다운로드 완료: {}", filename).into());
+                    console_log!("오디오 다운로드 완료: {}", filename);
                 } else {
-                    web_sys::console::error_1(&"다운로드 링크 요소 생성 실패".into());
+                    console_error!("다운로드 링크 요소 생성 실패");
                 }
             } else {
-                web_sys::console::error_1(&"document 객체를 찾을 수 없음".into());
+                console_error!("document 객체를 찾을 수 없음");
             }
         } else {
-            web_sys::console::error_1(&"window 객체를 찾을 수 없음".into());
+            console_error!("window 객체를 찾을 수 없음");
         }
     }
 }
@@ -620,7 +656,6 @@ impl Component for PitchAnalyzer {
                 wasm_bindgen_futures::spawn_local(async move {
                     match JsFuture::from(user_media_promise).await {
                         Ok(stream_value) => {
-                            info!("got user media stream");
                             let stream = MediaStream::from(stream_value);
                             let audio_ctx =
                                 AudioContext::new().expect("Failed to create AudioContext");
@@ -668,7 +703,7 @@ impl Component for PitchAnalyzer {
                                 let link_clone = link.clone();
                                 let onstop = Closure::wrap(Box::new(move |_: web_sys::Event| {
                                     // 녹음이 중지되면 명시적으로 중지됐다는 로그 기록
-                                    web_sys::console::log_1(&"레코더 중지 이벤트 발생 - 사후 처리 시작".into());
+                                    console_log!("레코더 중지 이벤트 발생 - 사후 처리 시작");
                                 }) as Box<dyn FnMut(web_sys::Event)>);
                                 
                                 recorder.set_ondataavailable(Some(ondataavailable.as_ref().unchecked_ref()));
@@ -681,19 +716,19 @@ impl Component for PitchAnalyzer {
                                 // 50ms 간격으로 데이터 수집하도록 설정 (더 작은 청크로 세밀하게 수집)
                                 // 이전보다 더 짧은 간격으로 설정하여 데이터 손실 최소화
                                 if let Err(err) = recorder.start_with_time_slice(50) {
-                                    web_sys::console::error_1(&format!("Failed to start recorder: {:?}", err).into());
+                                    console_error!("Failed to start recorder: {:?}", err);
                                 } else {
-                                    web_sys::console::log_1(&"🎙️ 미디어 레코더 시작 - 50ms 간격으로 데이터 수집".into());
+                                    console_log!("🎙️ 미디어 레코더 시작 - 50ms 간격으로 데이터 수집");
                                 }
                                 
                                 // 레코더 객체를 컴포넌트에 저장
                                 link.send_message(Msg::RecorderReady(recorder));
                             } else {
-                                web_sys::console::error_1(&"Failed to create MediaRecorder".into());
+                                console_error!("Failed to create MediaRecorder");
                             }
                         }
                         Err(err) => {
-                            web_sys::console::log_1(&format!("Media error: {:?}", err).into());
+                            console_log!("Media error: {:?}", err);
                         }
                     }
                 });
@@ -749,7 +784,7 @@ impl Component for PitchAnalyzer {
                             self.history.push_back((current_time, freqs));
                             
                             // 로그 출력 (디버깅용)
-                            web_sys::console::log_1(&format!("🕒 녹음 경과 시간: {:.2}s, 주파수: {:.2}Hz", current_time, average_freq).into());
+                            console_log!("🕒 녹음 경과 시간: {:.2}s, 주파수: {:.2}Hz", current_time, average_freq);
                         }
                     } else {
                         self.pitch = "🔇 너무 작은 소리 (무시됨)".to_string();
@@ -808,19 +843,15 @@ impl Component for PitchAnalyzer {
                 if let Ok(recorder) = web_sys::MediaRecorder::new_with_media_stream(&stream) {
                     self.recorder = Some(recorder);
                 } else {
-                    web_sys::console::error_1(&"Failed to create MediaRecorder in AudioReady handler".into());
+                    console_error!("Failed to create MediaRecorder in AudioReady handler");
                 }
 
                 // 스트림 복제: 하나는 분석용, 하나는 모니터링용으로 분리
                 if let Some(ctx) = &self.audio_ctx {
                     if let Some(stream) = &self._stream {
-                        // 웹 오디오 그래프 구성:
-                        // 1. 마이크 입력 -> 분석기 (분석 데이터 생성)
-                        // 2. 스피커 출력은 필요시 별도로 연결 (ToggleMonitor에서 처리)
-                        //
                         // 이렇게 하면 마이크와 스피커가 서로 다른 경로로 처리되어
                         // 에코 캔슬링으로 인한 문제가 발생하지 않습니다.
-                        web_sys::console::log_1(&"Audio graph configured for analysis".into());
+                        console_log!("Audio graph configured for analysis");
                     }
                 }
 
@@ -879,12 +910,10 @@ impl Component for PitchAnalyzer {
                             // 컨트롤 버튼 비활성화 이벤트 발생 (명시적으로 분리하여 처리)
                             let disable_event = web_sys::Event::new("disableControlButtons").expect("disableControlButtons 이벤트 생성 실패");
                             if let Err(err) = document.dispatch_event(&disable_event) {
-                                web_sys::console::error_1(&format!("disableControlButtons 이벤트 발생 실패: {:?}", err).into());
+                                console_error!("disableControlButtons 이벤트 발생 실패: {:?}", err);
                             } else {
-                                web_sys::console::log_1(&"컨트롤 버튼 비활성화 이벤트 발생 성공 (StopAudio)".into());
+                                console_log!("컨트롤 버튼 비활성화 이벤트 발생 성공 (StopAudio)");
                             }
-                            
-                            web_sys::console::log_1(&"마이크 비활성화 및 컨트롤 버튼 비활성화 이벤트 발생 (StopAudio)".into());
                         }
                     }
                     
@@ -914,8 +943,8 @@ impl Component for PitchAnalyzer {
             Msg::ToggleMonitor => {
                 // 마이크가 비활성화 상태라면 모니터링을 할 수 없음
                 if !self.mic_active {
-                    web_sys::console::log_1(
-                        &"Cannot toggle monitor without active microphone".into(),
+                    console_log!(
+                        "Cannot toggle monitor without active microphone"
                     );
                     return false;
                 }
@@ -955,59 +984,59 @@ impl Component for PitchAnalyzer {
                                                             
                                                             // 소스를 필터에 연결
                                                             if monitor_source.connect_with_audio_node(&filter_node).is_err() {
-                                                                web_sys::console::log_1(&"Failed to connect source to filter".into());
+                                                                console_log!("Failed to connect source to filter");
                                                                 self.monitor_active = false;
                                                                 return false;
                                                             }
                                                             
                                                             // 필터를 딜레이에 연결
                                                             if filter_node.connect_with_audio_node(&delay_node).is_err() {
-                                                                web_sys::console::log_1(&"Failed to connect filter to delay".into());
+                                                                console_log!("Failed to connect filter to delay");
                                                                 self.monitor_active = false;
                                                                 return false;
                                                             }
                                                             
                                                             // 딜레이를 게인에 연결
                                                             if delay_node.connect_with_audio_node(&gain_node).is_err() {
-                                                                web_sys::console::log_1(&"Failed to connect delay to gain".into());
+                                                                console_log!("Failed to connect delay to gain");
                                                                 self.monitor_active = false;
                                                                 return false;
                                                             }
                                                             
                                                             // 게인 노드를 출력에 연결
                                                             if gain_node.connect_with_audio_node(&audio_ctx.clone().destination()).is_err() {
-                                                                web_sys::console::log_1(&"Failed to connect gain to destination".into());
+                                                                console_log!("Failed to connect gain to destination");
                                                                 self.monitor_active = false;
                                                                 return false;
                                                             }
                                                             
                                                             // 스피커 노드 저장 (나중에 연결 해제용)
                                                             self.speaker_node = Some(gain_node);
-                                                            web_sys::console::log_1(&"Monitor activated with anti-feedback measures".into());
+                                                            console_log!("Monitor activated with anti-feedback measures");
                                                         }
                                                         Err(_) => {
-                                                            web_sys::console::log_1(&"Failed to create gain node".into());
+                                                            console_log!("Failed to create gain node");
                                                             self.monitor_active = false;
                                                             return false;
                                                         }
                                                     }
                                                 }
                                                 Err(_) => {
-                                                    web_sys::console::log_1(&"Failed to create delay node".into());
+                                                    console_log!("Failed to create delay node");
                                                     self.monitor_active = false;
                                                     return false;
                                                 }
                                             }
                                         }
                                         Err(_) => {
-                                            web_sys::console::log_1(&"Failed to create filter node".into());
+                                            console_log!("Failed to create filter node");
                                             self.monitor_active = false;
                                             return false;
                                         }
                                     }
                                 }
                                 Err(_) => {
-                                    web_sys::console::log_1(&"Failed to create monitor source".into());
+                                    console_log!("Failed to create monitor source");
                                     self.monitor_active = false;
                                     return false;
                                 }
@@ -1019,7 +1048,7 @@ impl Component for PitchAnalyzer {
                             // 웹오디오 API는 disconnect() 메서드로 모든 연결을 해제
                             speaker_node.disconnect();
                             self.speaker_node = None;
-                            web_sys::console::log_1(&"Monitor deactivated".into());
+                            console_log!("Monitor deactivated");
                         }
                     }
                     return true;
@@ -1033,9 +1062,9 @@ impl Component for PitchAnalyzer {
                     // 값이 0.0~1.0 범위를 벗어나지 않도록 보장
                     let volume = value.max(0.0).min(1.0);
                     gain_node.gain().set_value(volume);
-                    web_sys::console::log_1(&format!("Speaker volume updated to: {:.2}", volume).into());
+                    console_log!("Speaker volume updated to: {:.2}", volume);
                 } else {
-                    web_sys::console::log_1(&"Cannot update volume - speaker not initialized".into());
+                    console_log!("Cannot update volume - speaker not initialized");
                 }
                 true
             }
@@ -1059,7 +1088,7 @@ impl Component for PitchAnalyzer {
                 // 녹음 시작 시간 저장
                 if let Some(audio_ctx) = &self.audio_ctx {
                     self.recording_start_time = audio_ctx.current_time();
-                    web_sys::console::log_1(&format!("녹음 시작 절대 시간: {:.2}초", self.recording_start_time).into());
+                    console_log!("녹음 시작 절대 시간: {:.2}초", self.recording_start_time);
                 } else {
                     self.recording_start_time = 0.0;
                 }
@@ -1081,7 +1110,7 @@ impl Component for PitchAnalyzer {
                         // playbackReset 이벤트 발행: pitch plot의 playback 선을 0초로 초기화
                         let event = web_sys::Event::new("playbackReset").unwrap();
                         let _ = document.dispatch_event(&event);
-                        web_sys::console::log_1(&"녹음 시작: playbackReset 이벤트 발행".into());
+                        console_log!("녹음 시작: playbackReset 이벤트 발행");
                     }
                 }
                 
@@ -1090,7 +1119,7 @@ impl Component for PitchAnalyzer {
                 let max_recording_timer = gloo::timers::callback::Timeout::new(
                     Self::MAX_RECORDING_TIME * 1000, // 밀리초 단위 변환
                     move || {
-                        web_sys::console::log_1(&format!("최대 녹음 시간 ({}초) 도달, 자동 중지", Self::MAX_RECORDING_TIME).into());
+                        console_log!("최대 녹음 시간 ({}초) 도달, 자동 중지", Self::MAX_RECORDING_TIME);
                         // 녹음 중지 및 마이크 비활성화 메시지 전송
                         link.send_message(Msg::StopRecording);
                         link.send_message(Msg::StopAudio);
@@ -1107,7 +1136,7 @@ impl Component for PitchAnalyzer {
                                 ).unwrap_or_else(|_| web_sys::CustomEvent::new("toggleAudio").unwrap());
                                 
                                 let _ = document.dispatch_event(&event);
-                                web_sys::console::log_1(&"마이크 비활성화 이벤트 발생 (최대 녹음 시간 도달)".into());
+                                console_log!("마이크 비활성화 이벤트 발생 (최대 녹음 시간 도달)");
                             }
                         }
                         
@@ -1121,7 +1150,7 @@ impl Component for PitchAnalyzer {
                 // 이전 타이머가 있으면 취소하고 새 타이머 설정
                 self.max_recording_timer = Some(max_recording_timer);
                 
-                web_sys::console::log_1(&"녹음 시작: 시간 초기화됨".into());
+                console_log!("녹음 시작: 시간 초기화됨");
 
                 true
             }
@@ -1132,7 +1161,7 @@ impl Component for PitchAnalyzer {
                     return false;
                 }
                 
-                web_sys::console::log_1(&"⏹️ 녹음 중지 버튼 누름 - pitchplot 업데이트 중단 & 데이터 처리 시작".into());
+                console_log!("⏹️ 녹음 중지 버튼 누름 - pitchplot 업데이트 중단 & 데이터 처리 시작");
                 
                 // 녹음 종료 상태로 변경하되 청크 처리는 아직 진행 중
                 self.is_recording = false;
@@ -1145,7 +1174,7 @@ impl Component for PitchAnalyzer {
                 
                 // pitch 분석 인터벌 중지
                 self.analysis_interval = None;
-                web_sys::console::log_1(&"피치 분석 인터벌 중지됨".into());
+                console_log!("피치 분석 인터벌 중지됨");
                 
                 // 히스토리에 마지막 시간 기록 - 이후 업데이트 중단
                 let current_recording_time = self.elapsed_time;
@@ -1186,7 +1215,7 @@ impl Component for PitchAnalyzer {
                         let link = ctx.link().clone();
                         let recorder_clone = recorder.clone();
                         
-                        web_sys::console::log_1(&"녹음 중지 요청 - 모든 데이터 청크가 수집될 때까지 기다립니다...".into());
+                        console_log!("녹음 중지 요청 - 모든 데이터 청크가 수집될 때까지 기다립니다...");
                         
                         // 비동기 처리를 위한 Promise 생성
                         let promise = js_sys::Promise::new(&mut move |resolve, _reject| {
@@ -1194,7 +1223,7 @@ impl Component for PitchAnalyzer {
                             
                             // onstop 이벤트 핸들러 설정 - 모든 데이터가 수집됐을 때 호출됨
                             let onstop_closure = Closure::once(move |_event: web_sys::Event| {
-                                web_sys::console::log_1(&"레코더 onstop 이벤트: 모든 데이터 수집 완료".into());
+                                console_log!("레코더 onstop 이벤트: 모든 데이터 수집 완료");
                                 // Promise 해결
                                 let _ = resolve.call0(&JsValue::NULL);
                             });
@@ -1204,7 +1233,7 @@ impl Component for PitchAnalyzer {
                             
                             // 녹음 중지 요청
                             if let Err(err) = recorder_js.stop() {
-                                web_sys::console::error_1(&format!("녹음 중지 오류: {:?}", err).into());
+                                console_error!("녹음 중지 오류: {:?}", err);
                             }
                             
                             // 메모리 릭 방지
@@ -1215,12 +1244,12 @@ impl Component for PitchAnalyzer {
                         wasm_bindgen_futures::spawn_local(async move {
                             match JsFuture::from(promise).await {
                                 Ok(_) => {
-                                    web_sys::console::log_1(&"모든 녹음 데이터 수집 완료 - 후처리 시작".into());
+                                    console_log!("모든 녹음 데이터 수집 완료 - 후처리 시작");
                                     // 모든 데이터가 수집되었으므로 레코더 리소스 정리 메시지 전송
                                     link.send_message(Msg::RecordingComplete(String::new()));
                                 },
                                 Err(err) => {
-                                    web_sys::console::error_1(&format!("녹음 데이터 수집 중 오류 발생: {:?}", err).into());
+                                    console_error!("녹음 데이터 수집 중 오류 발생: {:?}", err);
                                     // 오류 발생 시에도 RecordingComplete 메시지 전송하여 정리
                                     link.send_message(Msg::RecordingComplete(String::new()));
                                 }
@@ -1249,16 +1278,16 @@ impl Component for PitchAnalyzer {
                     
                     if self.is_recording {
                         // 녹음 중 - 정상적인 데이터 수집
-                        web_sys::console::log_1(&format!("🎙️ 오디오 데이터 청크 수신 (녹음 중) - 크기: {:.2} KB, 총 청크: {}", 
-                            chunk_size / 1024.0, chunks_count).into());
+                        console_log!("🎙️ 오디오 데이터 청크 수신 (녹음 중) - 크기: {:.2} KB, 총 청크: {}", 
+                            chunk_size / 1024.0, chunks_count);
                     } else {
                         // 녹음 중지 후 - 나머지 데이터 수집 중
-                        web_sys::console::log_1(&format!("🎙️ 오디오 데이터 청크 수신 (녹음 종료 후 정리 중) - 크기: {:.2} KB, 총 청크: {}", 
-                            chunk_size / 1024.0, chunks_count).into());
+                        console_log!("🎙️ 오디오 데이터 청크 수신 (녹음 종료 후 정리 중) - 크기: {:.2} KB, 총 청크: {}", 
+                            chunk_size / 1024.0, chunks_count);
                     }
                 } else {
                     // 빈 청크는 무시하지만 로그는 남김
-                    web_sys::console::log_1(&"빈 오디오 데이터 청크 수신됨 (무시됨)".into());
+                    console_log!("빈 오디오 데이터 청크 수신됨 (무시됨)");
                 }
                 true
             },
@@ -1287,7 +1316,7 @@ impl Component for PitchAnalyzer {
                         recorder.set_ondataavailable(None);
                         recorder.set_onstop(None);
                         
-                        web_sys::console::log_1(&"레코더 정리 완료".into());
+                        console_log!("레코더 정리 완료");
                     }
                     
                     // 모든 관련 상태 초기화
@@ -1306,8 +1335,8 @@ impl Component for PitchAnalyzer {
                         for blob in &self.recorded_chunks {
                             total_size += blob.size();
                         }
-                        web_sys::console::log_1(&format!("처리 중인 녹음 청크: {}개, 총 크기: {:.2} KB", 
-                            total_chunks, total_size / 1024.0).into());
+                        console_log!("처리 중인 녹음 청크: {}개, 총 크기: {:.2} KB", 
+                            total_chunks, total_size / 1024.0);
                         
                         // Blob 배열을 하나의 Blob으로 합치기
                         let mut blob_options = web_sys::BlobPropertyBag::new();
@@ -1317,24 +1346,24 @@ impl Component for PitchAnalyzer {
                             Ok(combined_blob) => {
                                 // Blob 크기 확인
                                 let blob_size = combined_blob.size();
-                                web_sys::console::log_1(&format!("생성된 Blob 크기: {:.2} KB", blob_size / 1024.0).into());
+                                console_log!("생성된 Blob 크기: {:.2} KB", blob_size / 1024.0);
                                 
                                 // Blob URL 생성
                                 match web_sys::Url::create_object_url_with_blob(&combined_blob) {
                                     Ok(new_url) => new_url,
                                     Err(err) => {
-                                        web_sys::console::error_1(&format!("URL 생성 실패: {:?}", err).into());
+                                        console_error!("URL 생성 실패: {:?}", err);
                                         return false;
                                     }
                                 }
                             },
                             Err(err) => {
-                                web_sys::console::error_1(&format!("Blob 결합 실패: {:?}", err).into());
+                                console_error!("Blob 결합 실패: {:?}", err);
                                 return false;
                             }
                         }
                     } else {
-                        web_sys::console::error_1(&"처리할 녹음 청크가 없습니다".into());
+                        console_error!("처리할 녹음 청크가 없습니다");
                         return false;
                     }
                 } else {
@@ -1371,8 +1400,8 @@ impl Component for PitchAnalyzer {
                                         let actual_duration = audio.duration();
                                         
                                         // 로그로 실제 오디오 길이와 기록된 길이 비교
-                                        web_sys::console::log_1(&format!("오디오 메타데이터 로드됨: 실제 길이 = {:.2}초, 기록된 길이 = {:.2}초", 
-                                            actual_duration, last_recording_time).into());
+                                        console_log!("오디오 메타데이터 로드됨: 실제 길이 = {:.2}초, 기록된 길이 = {:.2}초", 
+                                            actual_duration, last_recording_time);
                                         
                                         // 실제 오디오 길이로 last_recording_time 업데이트
                                         link_load.send_message(Msg::UpdateRecordingDuration(actual_duration));
@@ -1401,7 +1430,7 @@ impl Component for PitchAnalyzer {
                                             // 문서에 추가
                                             if let Some(body) = document.body() {
                                                 let _ = body.append_child(&container);
-                                                web_sys::console::log_1(&"오디오 컨테이너 DOM에 추가됨".into());
+                                                console_log!("오디오 컨테이너 DOM에 추가됨");
                                             }
                                         }
                                     }
@@ -1417,7 +1446,7 @@ impl Component for PitchAnalyzer {
                                 // 새 오디오 요소를 컨테이너에 추가
                                 if let Some(container) = document.get_element_by_id(container_id) {
                                     let _ = container.append_child(&audio_element);
-                                    web_sys::console::log_1(&"오디오 요소 DOM에 추가됨".into());
+                                    console_log!("오디오 요소 DOM에 추가됨");
                                 }
                             }
                             
@@ -1440,7 +1469,7 @@ impl Component for PitchAnalyzer {
                         ).unwrap_or_else(|_| web_sys::CustomEvent::new("recordingComplete").unwrap());
                         
                         let _ = document.dispatch_event(&event);
-                        web_sys::console::log_1(&"recordingComplete 이벤트 발행".into());
+                        console_log!("recordingComplete 이벤트 발행");
                     }
                 }
                 
@@ -1459,7 +1488,7 @@ impl Component for PitchAnalyzer {
             Msg::StartPlayback => {
                 // 녹음 중이면 재생 불가
                 if self.is_recording {
-                    web_sys::console::log_1(&"녹음 중에는 재생할 수 없습니다".into());
+                    console_log!("녹음 중에는 재생할 수 없습니다");
                     return false;
                 }
                 
@@ -1468,31 +1497,31 @@ impl Component for PitchAnalyzer {
                 
                 // 이미 재생 중인 경우 중복 호출 방지
                 if self.is_playing {
-                    web_sys::console::log_1(&"이미 재생 중입니다".into());
+                    console_log!("이미 재생 중입니다");
                     return false;
                 }
                 
                 if let Some(audio_element) = &self.audio_element {
-                    web_sys::console::log_1(&format!("StartPlayback: 오디오 요소={:?}, ready_state={}", 
-                        audio_element, audio_element.ready_state()).into());
+                    console_log!("StartPlayback: 오디오 요소={:?}, ready_state={}", 
+                        audio_element, audio_element.ready_state());
                     
                     // 기존 인터벌이 있으면 제거
                     self.playback_interval = None;
                     
                     // 오디오 데이터가 로드되었는지 확인
                     if audio_element.ready_state() < 2 { // HAVE_CURRENT_DATA = 2
-                        web_sys::console::log_1(&"오디오 데이터가 아직 로드되지 않음. loadeddata 리스너 설정".into());
+                        console_log!("오디오 데이터가 아직 로드되지 않음. loadeddata 리스너 설정");
                         
                         // 아직 로드 중이면 로드 완료 후 재생을 시도하도록 이벤트 리스너 추가
                         let link = ctx.link().clone();
                         let audio_element_clone = audio_element.clone();
                         let onloadeddata = Closure::wrap(Box::new(move |_: web_sys::Event| {
-                            web_sys::console::log_1(&"오디오 데이터 로드 완료 콜백 실행".into());
+                            console_log!("오디오 데이터 로드 완료 콜백 실행");
                             // 로드 완료 후 재생 시도
                             if let Err(err) = audio_element_clone.play() {
-                                web_sys::console::error_1(&format!("로드 후 재생 시작 실패: {:?}", err).into());
+                                console_error!("로드 후 재생 시작 실패: {:?}", err);
                             } else {
-                                web_sys::console::log_1(&"로드 후 재생 시작됨".into());
+                                console_log!("로드 후 재생 시작됨");
                                 // 재생 성공 시 플래그 설정
                                 link.send_message(Msg::StartPlayback);
                             }
@@ -1504,21 +1533,21 @@ impl Component for PitchAnalyzer {
                         onloadeddata.forget();
                         
                         // 로딩 중임을 알림
-                        web_sys::console::log_1(&"오디오 데이터 로드 대기 중...".into());
+                        console_log!("오디오 데이터 로드 대기 중...");
                         return true;
                     }
                     
                     // 오디오 요소가 있고 데이터가 로드되었으면 재생 시작
-                    web_sys::console::log_1(&"오디오 데이터 로드됨, 재생 시작".into());
+                    console_log!("오디오 데이터 로드됨, 재생 시작");
                     
                     // 재생이 끝나서 다시 시작하는 경우만 처음부터 재생
                     if audio_element.ended() {
                         audio_element.set_current_time(0.0);
                         self.playback_time = 0.0;
-                        web_sys::console::log_1(&"재생이 끝난 상태에서 다시 시작하므로 처음부터 재생".into());
+                        console_log!("재생이 끝난 상태에서 다시 시작하므로 처음부터 재생");
                     } else {
                         // 일시 정지된 위치에서 계속 재생
-                        web_sys::console::log_1(&format!("재생 위치 유지: {:.2}초", audio_element.current_time()).into());
+                        console_log!("재생 위치 유지: {:.2}초", audio_element.current_time());
                     }
                     
                     // 기존 이벤트 리스너들 명시적으로 제거
@@ -1527,7 +1556,7 @@ impl Component for PitchAnalyzer {
                     // 종료 이벤트 새로 설정
                     let link = ctx.link().clone();
                     let onended = Closure::wrap(Box::new(move |_: web_sys::Event| {
-                        web_sys::console::log_1(&"재생 종료 이벤트 발생".into());
+                        console_log!("재생 종료 이벤트 발생");
                         link.send_message(Msg::PlaybackEnded);
                     }) as Box<dyn FnMut(web_sys::Event)>);
                     audio_element.set_onended(Some(onended.as_ref().unchecked_ref()));
@@ -1538,12 +1567,12 @@ impl Component for PitchAnalyzer {
                     
                     // 재생 시작
                     if let Err(err) = audio_element.play() {
-                        web_sys::console::error_1(&format!("재생 시작 실패: {:?}", err).into());
+                        console_error!("재생 시작 실패: {:?}", err);
                         self.is_playing = false;
                         return false;
                     }
                     
-                    web_sys::console::log_1(&format!("재생 시작됨, is_playing={}", self.is_playing).into());
+                    console_log!("재생 시작됨, is_playing={}", self.is_playing);
                     
                     // 재생 상태 이벤트 발행
                     if let Some(window) = web_sys::window() {
@@ -1569,7 +1598,7 @@ impl Component for PitchAnalyzer {
                     let interval = gloo::timers::callback::Interval::new(30, move || {
                         // 오디오 요소가 아직 유효한지 확인
                         if audio_element_clone.ended() {
-                            web_sys::console::log_1(&"재생 종료 감지됨 (인터벌)".into());
+                            console_log!("재생 종료 감지됨 (인터벌)");
                             link.send_message(Msg::PlaybackEnded);
                             return;
                         }
@@ -1587,7 +1616,7 @@ impl Component for PitchAnalyzer {
                     true
                 } else {
                     // 오디오 요소가 없으면 재생 불가
-                    web_sys::console::error_1(&"재생할 오디오 요소가 없음".into());
+                    console_log!("재생할 오디오 요소가 없음");
                     false
                 }
             }
@@ -1601,11 +1630,11 @@ impl Component for PitchAnalyzer {
                 if let Some(audio_element) = &self.audio_element {
                     // 현재 재생 시간 기록
                     self.playback_time = audio_element.current_time();
-                    web_sys::console::log_1(&format!("일시 정지 시점 시간 저장: {:.2}초", self.playback_time).into());
+                    console_log!("일시 정지 시점 시간 저장: {:.2}초", self.playback_time);
                     
                     // 오디오 요소가 있으면 일시정지
                     if let Err(err) = audio_element.pause() {
-                        web_sys::console::error_1(&format!("재생 일시정지 실패: {:?}", err).into());
+                        console_error!("재생 일시정지 실패: {:?}", err);
                         return false;
                     }
                     
@@ -1614,7 +1643,7 @@ impl Component for PitchAnalyzer {
                     
                     // 상태 업데이트
                     self.is_playing = false;
-                    web_sys::console::log_1(&"재생 일시정지됨".into());
+                    console_log!("재생 일시정지됨");
                     
                     // 재생 상태 이벤트 발행
                     if let Some(window) = web_sys::window() {
@@ -1632,6 +1661,7 @@ impl Component for PitchAnalyzer {
                     true
                 } else {
                     // 오디오 요소가 없으면 일시정지 불가
+                    console_log!("일시정지할 오디오 요소가 없음");
                     false
                 }
             }
@@ -1639,13 +1669,13 @@ impl Component for PitchAnalyzer {
             Msg::UpdatePlaybackTime(time) => {
                 if !self.is_playing {
                     // 재생 중이 아닌데 호출되면, 이는 잘못된 상태임을 기록하고 무시
-                    web_sys::console::log_1(&format!("⚠️ 재생 중이 아닌데 UpdatePlaybackTime 호출됨: {:.2}s", time).into());
+                    console_log!("⚠️ 재생 중이 아닌데 UpdatePlaybackTime 호출됨: {:.2}s", time);
                     return false;
                 }
                 
                 // 시간이 너무 작으면 무시 (seek 동작으로 인한 오류 방지)
                 if time < 0.001 {
-                    web_sys::console::log_1(&"시간이 너무 작아서 무시 (0에 가까움)".into());
+                    console_log!("시간이 너무 작아서 무시 (0에 가까움)");
                     return false;
                 }
                 
@@ -1706,8 +1736,8 @@ impl Component for PitchAnalyzer {
                             self.pitch = frequency_to_note_octave(current_playback_freq);
                         }
                         
-                        web_sys::console::log_1(&format!("🎵 재생 시간 {:.2}s의 주파수: {:.2}Hz ({})", 
-                            time, current_playback_freq, self.pitch).into());
+                        console_log!("🎵 재생 시간 {:.2}s의 주파수: {:.2}Hz ({})", 
+                            time, current_playback_freq, self.pitch);
                     }
                 } else {
                     // 해당 시점에 주파수 데이터가 없으면 0으로 설정 (표시 안 함)
@@ -1732,8 +1762,8 @@ impl Component for PitchAnalyzer {
                     
                     // 로그 줄여서 성능 향상
                     if time % 1.0 < 0.03 { // 대략 1초마다 한 번만 로그 출력
-                        web_sys::console::log_1(&format!("🔊 재생 시간 {:.2}s의 진폭 데이터: {} 개, RMS: {:.3}", 
-                            time, amp_data.len(), rms).into());
+                        console_log!("🔊 재생 시간 {:.2}s의 진폭 데이터: {} 개, RMS: {:.3}", 
+                            time, amp_data.len(), rms);
                     }
                 } else {
                     // 해당 시점에 진폭 데이터가 없으면 빈 데이터 설정
@@ -1746,12 +1776,12 @@ impl Component for PitchAnalyzer {
                 if let Some((last_time, _)) = self.history.back() {
                     if time > *last_time {
                         // 현재 재생 시간이 기록된 마지막 시간보다 크면 이상 - 로그 출력
-                        web_sys::console::log_1(&format!("⚠️ 재생 시간이 기록 범위를 벗어남: {:.2}s > {:.2}s", time, last_time).into());
+                        console_log!("⚠️ 재생 시간이 기록 범위를 벗어남: {:.2}s > {:.2}s", time, last_time);
                     }
                 }
                 
                 // 재생 중 로그 출력
-                web_sys::console::log_1(&format!("⏱️ 재생 시간 업데이트: {:.2}s, is_playing: {}", time, self.is_playing).into());
+                console_log!("⏱️ 재생 시간 업데이트: {:.2}s, is_playing: {}", time, self.is_playing);
                 
                 true
             }
@@ -1759,12 +1789,12 @@ impl Component for PitchAnalyzer {
             Msg::PlaybackEnded => {
                 // 이미 재생 중이 아니면 중복 호출 무시
                 if !self.is_playing {
-                    web_sys::console::log_1(&"이미 재생이 종료되었습니다".into());
+                    console_log!("이미 재생이 종료되었습니다");
                     return false;
                 }
                 
                 // 재생 완료 로그
-                web_sys::console::log_1(&"⏹️ 재생 종료, 재생 상태 초기화".into());
+                console_log!("⏹️ 재생 종료, 재생 상태 초기화");
                 
                 // 인터벌 타이머 제거
                 self.playback_interval = None;
@@ -1779,8 +1809,8 @@ impl Component for PitchAnalyzer {
                     if actual_duration > 0.0 && actual_duration.is_finite() {
                         // 실제 오디오 길이가 last_recording_time과 다르면 업데이트
                         if (actual_duration - self.last_recording_time).abs() > 0.1 {
-                            web_sys::console::log_1(&format!("재생 종료시 오디오 길이 업데이트: {:.2}초 -> {:.2}초", 
-                                self.last_recording_time, actual_duration).into());
+                            console_log!("재생 종료시 오디오 길이 업데이트: {:.2}초 -> {:.2}초", 
+                                self.last_recording_time, actual_duration);
                             self.last_recording_time = actual_duration;
                         }
                     }
@@ -1804,8 +1834,8 @@ impl Component for PitchAnalyzer {
                     let rms = (amp_data.iter().map(|&x| x * x).sum::<f32>() / amp_data.len() as f32).sqrt();
                     self.current_rms = rms;
                     
-                    web_sys::console::log_1(&format!("🔊 재생 완료 시 마지막 진폭 데이터: {} 개, RMS: {:.3}", 
-                        amp_data.len(), rms).into());
+                    console_log!("🔊 재생 완료 시 마지막 진폭 데이터: {} 개, RMS: {:.3}", 
+                        amp_data.len(), rms);
                 }
                 
                 // 재생 시간 UI 업데이트 (게이지바를 정확히 끝까지 채움)
@@ -1826,7 +1856,7 @@ impl Component for PitchAnalyzer {
                         // 재생 종료 이벤트 발행
                         let event = web_sys::Event::new("playbackEnded").unwrap();
                         let _ = document.dispatch_event(&event);
-                        web_sys::console::log_1(&"playbackEnded 이벤트 발행".into());
+                        console_log!("playbackEnded 이벤트 발행");
                     }
                 }
                 
@@ -1839,7 +1869,7 @@ impl Component for PitchAnalyzer {
                 if let Some(audio_element) = &self.audio_element {
                     audio_element.set_current_time(0.0);
                     self.playback_time = 0.0;
-                    web_sys::console::log_1(&"오디오 요소의 위치 초기화됨".into());
+                    console_log!("오디오 요소의 위치 초기화됨");
                     
                     // UI도 업데이트 (게이지바 위치를 0으로 설정)
                     self.update_playback_time_ui(0.0);
@@ -1891,8 +1921,8 @@ impl Component for PitchAnalyzer {
                             
                             if strongest_freq > 0.0 {
                                 self.pitch = frequency_to_note_octave(strongest_freq);
-                                web_sys::console::log_1(&format!("🎵 시크 위치의 주파수: {:.2}Hz ({})", 
-                                    strongest_freq, self.pitch).into());
+                                console_log!("🎵 시크 위치의 주파수: {:.2}Hz ({})", 
+                                    strongest_freq, self.pitch);
                             }
                         }
                     }
@@ -1913,8 +1943,8 @@ impl Component for PitchAnalyzer {
                         let rms = (amp_data.iter().map(|&x| x * x).sum::<f32>() / amp_data.len() as f32).sqrt();
                         self.current_rms = rms;
                         
-                        web_sys::console::log_1(&format!("🔊 시크 위치의 진폭 데이터: {} 개, RMS: {:.3}", 
-                            amp_data.len(), rms).into());
+                        console_log!("🔊 시크 위치의 진폭 데이터: {} 개, RMS: {:.3}", 
+                            amp_data.len(), rms);
                     } else {
                         // 해당 시점에 진폭 데이터가 없으면 빈 데이터 설정
                         let empty_amplitude = vec![0.0f32; 128];
@@ -1929,18 +1959,18 @@ impl Component for PitchAnalyzer {
                     if was_playing {
                         // 일시 중지
                         if let Err(err) = audio_element.pause() {
-                            web_sys::console::error_1(&format!("시크 전 일시 중지 실패: {:?}", err).into());
+                            console_error!("시크 전 일시 중지 실패: {:?}", err);
                         }
                         
                         // 오디오 요소의 재생 위치 변경
                         audio_element.set_current_time(seek_time);
                         
-                        web_sys::console::log_1(&format!("🎯 재생 위치 변경: {:.2}초 ({:.1}%)", 
-                            seek_time, progress * 100.0).into());
+                        console_log!("🎯 재생 위치 변경: {:.2}초 ({:.1}%)", 
+                            seek_time, progress * 100.0);
                         
                         // 재생 시작
                         if let Err(err) = audio_element.play() {
-                            web_sys::console::error_1(&format!("시크 후 재생 시작 실패: {:?}", err).into());
+                            console_error!("시크 후 재생 시작 실패: {:?}", err);
                         } else {
                             // 재생 상태 유지
                             
@@ -1953,7 +1983,7 @@ impl Component for PitchAnalyzer {
                                 let interval = gloo::timers::callback::Interval::new(100, move || {
                                     // 오디오 요소가 아직 유효한지 확인
                                     if audio_element_clone.ended() {
-                                        web_sys::console::log_1(&"재생 종료 감지됨 (인터벌)".into());
+                                        console_log!("재생 종료 감지됨 (인터벌)");
                                         link.send_message(Msg::PlaybackEnded);
                                         return;
                                     }
@@ -1972,13 +2002,13 @@ impl Component for PitchAnalyzer {
                     } else {
                         // 일시정지 상태에서는 오디오 요소의 currentTime만 업데이트하고, 재생은 시작하지 않음
                         audio_element.set_current_time(seek_time);
-                        web_sys::console::log_1(&format!("🎯 재생 위치만 변경: {:.2}초 ({:.1}%)", 
-                            seek_time, progress * 100.0).into());
+                        console_log!("🎯 재생 위치만 변경: {:.2}초 ({:.1}%)", 
+                            seek_time, progress * 100.0);
                     }
                     
                     true
                 } else {
-                    web_sys::console::error_1(&"시크할 오디오 요소가 없음".into());
+                    console_log!("시크할 오디오 요소가 없음");
                     false
                 }
             }
@@ -1986,14 +2016,14 @@ impl Component for PitchAnalyzer {
             Msg::UpdateRecordingDuration(actual_duration) => {
                 // 실제 오디오 길이 검증 (비정상적으로 큰 값이나 작은 값은 거부)
                 if actual_duration <= 0.0 || actual_duration > 3600.0 {
-                    web_sys::console::error_1(&format!("비정상적인 오디오 길이 감지됨: {:.2}초, 무시함", actual_duration).into());
+                    console_error!("비정상적인 오디오 길이 감지됨: {:.2}초, 무시함", actual_duration);
                     return false;
                 }
                 
                 // 실제 오디오 길이가 기록된 길이와 차이가 나면 업데이트
                 if (actual_duration - self.last_recording_time).abs() > 0.1 {
-                    web_sys::console::log_1(&format!("녹음 길이 업데이트: {:.2}초 -> {:.2}초", 
-                        self.last_recording_time, actual_duration).into());
+                    console_log!("녹음 길이 업데이트: {:.2}초 -> {:.2}초", 
+                        self.last_recording_time, actual_duration);
                     
                     // 이전 녹음 시간 저장
                     let previous_recording_time = self.last_recording_time;
@@ -2012,7 +2042,7 @@ impl Component for PitchAnalyzer {
                     // 새 녹음 길이 기준으로도 끝에 있도록 조정
                     if !self.is_playing && current_progress > 0.9 {
                         self.playback_time = actual_duration;
-                        web_sys::console::log_1(&format!("재생 위치 끝으로 조정: {:.2}초", actual_duration).into());
+                        console_log!("재생 위치 끝으로 조정: {:.2}초", actual_duration);
                     }
                     
                     // UI 업데이트 - 진행률이 유지되도록 보정
@@ -2025,7 +2055,7 @@ impl Component for PitchAnalyzer {
                             // 재생이 끝난 상태면 게이지를 끝으로 조정
                             self.playback_time = actual_duration;
                             self.update_playback_time_ui(actual_duration);
-                            web_sys::console::log_1(&"재생 완료 상태: 게이지 위치를 끝으로 보정".into());
+                            console_log!("재생 완료 상태: 게이지 위치를 끝으로 보정");
                         }
                     }
                 }
@@ -2071,14 +2101,14 @@ impl Component for PitchAnalyzer {
                         // 이벤트 생성 및 발생
                         let enable_event = web_sys::Event::new("enableControlButtons").expect("enableControlButtons 이벤트 생성 실패");
                         if let Err(err) = document.dispatch_event(&enable_event) {
-                            web_sys::console::error_1(&format!("enableControlButtons 이벤트 발생 실패: {:?}", err).into());
+                            console_error!("enableControlButtons 이벤트 발생 실패: {:?}", err);
                         } else {
-                            web_sys::console::log_1(&"컨트롤 버튼 활성화 이벤트 발생 성공 (StopAudioResources)".into());
+                            console_log!("컨트롤 버튼 활성화 이벤트 발생 성공 (StopAudioResources)");
                         }
                     }
                 }
 
-                web_sys::console::log_1(&"오디오 리소스 및 모든 인터벌 중지됨".into());
+                console_log!("오디오 리소스 및 모든 인터벌 중지됨");
 
                 true
             },
@@ -2086,7 +2116,7 @@ impl Component for PitchAnalyzer {
             Msg::DownloadRecording(format) => {
                 // 녹음된 오디오가 없으면 다운로드 불가
                 if !self.has_recorded_audio() {
-                    web_sys::console::log_1(&"다운로드할 녹음된 오디오가 없습니다".into());
+                    console_log!("다운로드할 녹음된 오디오가 없습니다");
                     return false;
                 }
                 
@@ -2123,12 +2153,12 @@ impl Component for PitchAnalyzer {
                         if let Ok(audio_context) = web_sys::AudioContext::new() {
                             // 현재 WebM 오디오를 다른 포맷으로 변환하는 로직
                             // 이는 복잡한 작업이므로 현재는 경고 메시지만 표시
-                            web_sys::console::warn_1(&format!("포맷 변환 기능은 아직 구현되지 않았습니다. {} 포맷으로 변환하려면 추가 구현이 필요합니다.", format).into());
+                            console_warn!("포맷 변환 기능은 아직 구현되지 않았습니다. {} 포맷으로 변환하려면 추가 구현이 필요합니다.", format);
                             
                             // 현재는 WebM 파일을 선택된 확장자로 다운로드 (실제 변환은 미구현)
                             self.download_audio_file(&audio_url, &filename);
                         } else {
-                            web_sys::console::error_1(&"오디오 컨텍스트 생성 실패".into());
+                            console_error!("오디오 컨텍스트 생성 실패");
                             return false;
                         }
                     } else {
@@ -2136,17 +2166,17 @@ impl Component for PitchAnalyzer {
                         self.download_audio_file(&audio_url, &filename);
                     }
                     
-                    web_sys::console::log_1(&format!("오디오 다운로드 시작: {} (포맷: {})", filename, format).into());
+                    console_log!("오디오 다운로드 시작: {} (포맷: {})", filename, format);
                     return true;
                 }
                 
-                web_sys::console::error_1(&"오디오 다운로드 실패".into());
+                console_error!("오디오 다운로드 실패");
                 false
             },
             
             // 새 메시지 추가: 컴포넌트 상태 완전 초기화
             Msg::ResetComponent => {
-                web_sys::console::log_1(&"PitchAnalyzer 컴포넌트 상태 초기화 시작".into());
+                console_log!("PitchAnalyzer 컴포넌트 상태 초기화 시작");
                 
                 // 오디오 재생/녹음 관련 상태 초기화
                 if self.is_playing {
@@ -2232,7 +2262,7 @@ impl Component for PitchAnalyzer {
                         if let Some(audio_element) = document.get_element_by_id("pitch-analyzer-audio") {
                             if let Some(parent) = audio_element.parent_node() {
                                 let _ = parent.remove_child(&audio_element);
-                                web_sys::console::log_1(&"DOM에서 오디오 요소 제거됨".into());
+                                console_log!("DOM에서 오디오 요소 제거됨");
                             }
                         }
                     }
@@ -2255,7 +2285,7 @@ impl Component for PitchAnalyzer {
                 self.amplitude_history.clear();
                 self.current_rms = 0.0;
                 
-                web_sys::console::log_1(&"PitchAnalyzer 컴포넌트 상태 초기화 완료".into());
+                console_log!("PitchAnalyzer 컴포넌트 상태 초기화 완료");
                 
                 true
             },

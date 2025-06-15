@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{AudioContext, AudioNode, AudioParam, GainNode, HtmlAudioElement, KeyboardEvent, Document};
+use wasm_bindgen::JsCast;
+use web_sys::{AudioContext, AudioNode, AudioParam, GainNode, HtmlAudioElement, KeyboardEvent, Document, HtmlElement, MouseEvent, TouchEvent};
 use yew::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -7,7 +8,31 @@ use gloo_timers::callback::Timeout;
 use wasm_bindgen::closure::Closure;
 use web_sys::console;
 use js_sys;
-use log::info;
+
+// 조건부 로그 매크로 정의
+#[cfg(debug_assertions)]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(debug_assertions)]
+macro_rules! console_error {
+    ($($arg:tt)*) => {
+        web_sys::console::error_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_error {
+    ($($arg:tt)*) => {};
+}
 
 // 피아노 키 정보를 위한 구조체
 #[derive(Clone, PartialEq)]
@@ -299,10 +324,10 @@ impl Component for PianoKeyboard {
                             let play_timeout = Timeout::new(5, move || {
                                 match audio.play() {
                                     Ok(_) => {
-                                        console::log_1(&format!("피아노 노트 재생: {}", key_name).into());
+                                        console_log!("피아노 노트 재생: {}", key_name);
                                     },
                                     Err(err) => {
-                                        console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                                        console_error!("오디오 재생 실패: {:?}", err);
                                         // 재생 실패 시 맵에서 제거
                                         play_link.send_message(PianoMsg::RemoveActiveSound(key_name));
                                     }
@@ -763,7 +788,7 @@ impl Component for PianoKeyboard {
                 self.keyboard_input_enabled = !self.keyboard_input_enabled;
                 
                 // 상태 변경 로그 출력
-                console::log_1(&format!("키보드 입력 {}", if self.keyboard_input_enabled { "활성화" } else { "비활성화" }).into());
+                console_log!("키보드 입력 {}", if self.keyboard_input_enabled { "활성화" } else { "비활성화" });
                 
                 true
             },
@@ -864,10 +889,10 @@ impl Component for PianoKeyboard {
                                     let play_timeout = Timeout::new(5, move || {
                                         match audio.play() {
                                             Ok(_) => {
-                                                console::log_1(&format!("피아노 노트 재생(세트{}): {}", set_idx_copy, key_name).into());
+                                                console_log!("피아노 노트 재생(세트{}): {}", set_idx_copy, key_name);
                                             },
                                             Err(err) => {
-                                                console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                                                console_error!("오디오 재생 실패: {:?}", err);
                                                 // 재생 실패 시 맵에서 제거
                                                 play_link.send_message(PianoMsg::RemoveActiveSound(key_name));
                                             }
@@ -1013,7 +1038,7 @@ impl Component for PianoKeyboard {
                         if let Some(audio) = self.active_sounds.remove(&key_name) {
                             let _ = audio.set_current_time(0.0);
                             let _ = audio.pause();
-                            console::log_1(&format!("세트 {} 키 {} 소리 제거", set_idx, key_idx).into());
+                            console_log!("세트 {} 키 {} 소리 제거", set_idx, key_idx);
                         }
                     }
                 }
@@ -1045,12 +1070,12 @@ impl Component for PianoKeyboard {
                                 if let Some(audio) = self.active_sounds.remove(&key_name) {
                                     let _ = audio.set_current_time(0.0);
                                     let _ = audio.pause();
-                                    console::log_1(&format!("세트 키 {} 소리 정지", key_base_name).into());
+                                    console_log!("세트 키 {} 소리 정지", key_base_name);
                                 }
                             }
                         }
                     } else {
-                        console::log_1(&format!("세트 {} 소리 정지 취소 (키가 다시 눌려있거나 서스테인 활성화됨 또는 활성 세트임)", set_idx).into());
+                        console_log!("세트 {} 소리 정지 취소 (키가 다시 눌려있거나 서스테인 활성화됨 또는 활성 세트임)", set_idx);
                     }
                 }
                 false
@@ -1075,11 +1100,11 @@ impl Component for PianoKeyboard {
                             if let Some(audio) = self.active_sounds.remove(&key_name) {
                                 let _ = audio.set_current_time(0.0);
                                 let _ = audio.pause();
-                                console::log_1(&format!("세트 키 {} 소리 정지", key_base_name).into());
+                                console_log!("세트 키 {} 소리 정지", key_base_name);
                             }
                         }
                     } else {
-                        console::log_1(&format!("세트 키 {} 소리 정지 취소 (키가 다시 눌려있거나 서스테인 활성화됨 또는 활성 세트임)", self.keys[key_idx].full_name()).into());
+                        console_log!("세트 키 {} 소리 정지 취소 (키가 다시 눌려있거나 서스테인 활성화됨 또는 활성 세트임)", self.keys[key_idx].full_name());
                     }
                 }
                 false
@@ -1698,9 +1723,9 @@ impl PianoKeyboard {
                     
                     // 오디오 재생
                     if let Err(err) = audio_element.play() {
-                        console::error_1(&format!("오디오 재생 실패: {:?}", err).into());
+                        console_error!("오디오 재생 실패: {:?}", err);
                     } else {
-                        console::log_1(&format!("피아노 노트 재생: {}", key.full_name()).into());
+                        console_log!("피아노 노트 재생: {}", key.full_name());
                         
                         // 재생 중인 소리 목록에 추가
                         self.active_sounds.insert(key.full_name(), audio_element);
@@ -1717,7 +1742,7 @@ impl PianoKeyboard {
             let _ = audio.pause();
             let _ = audio.set_src("");  // 리소스 해제
             
-            console::log_1(&format!("피아노 노트 중지: {}", key_name).into());
+            console_log!("피아노 노트 중지: {}", key_name);
         }
     }
 
@@ -1921,9 +1946,9 @@ impl PianoKeyboard {
                 }
                 
                 // 로그 출력
-                console::log_1(&format!("세트 {} 소리 모두 정지", set_idx).into());
+                console_log!("세트 {} 소리 모두 정지", set_idx);
             } else {
-                console::log_1(&format!("세트 {} 소리 정지 취소 (키가 다시 눌려있음)", set_idx).into());
+                console_log!("세트 {} 소리 정지 취소 (키가 다시 눌려있음)", set_idx);
             }
         }
     }
@@ -1944,11 +1969,11 @@ impl PianoKeyboard {
                 for key_name in sounds_to_clean {
                     // HashMap에서만 제거하고 pause 호출하지 않음
                     if let Some(_) = self.active_sounds.remove(&key_name) {
-                        console::log_1(&format!("세트 {} 키 {} 이전 소리 정리", set_idx, key_idx).into());
+                        console_log!("세트 {} 키 {} 이전 소리 정리", set_idx, key_idx);
                     }
                 }
             }
-            console::log_1(&format!("세트 {} 소리 정리 완료", set_idx).into());
+            console_log!("세트 {} 소리 정리 완료", set_idx);
         }
     }
 
@@ -1965,7 +1990,7 @@ impl PianoKeyboard {
             // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
             if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
                 // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
-                console::log_1(&format!("브라우저 기능키 감지: {}", key).into());
+                console_log!("브라우저 기능키 감지: {}", key);
                 // 단, 피아노 앱에서 사용하는 키는 처리
                 link_down.send_message(PianoMsg::KeyboardKeyDown(key));
                 return;
@@ -1975,14 +2000,14 @@ impl PianoKeyboard {
             event.prevent_default();
             event.stop_propagation();
             
-            console::log_1(&format!("Key down: {}", key).into());
+            console_log!("Key down: {}", key);
             
             // 세트 키(1-9, 0)인 경우 
             let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
             
             if is_set_key && !event.repeat() {
                 let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
-                console::log_1(&format!("세트 키 감지: 세트 {}", set_idx).into());
+                console_log!("세트 키 감지: 세트 {}", set_idx);
                 
                 // 먼저 KeyboardKeyDown 메시지를 보내 키 상태 업데이트
                 link_down.send_message(PianoMsg::KeyboardKeyDown(key.clone()));
@@ -2013,7 +2038,7 @@ impl PianoKeyboard {
             // 기능키(F1-F12)와 특수 키 조합(Ctrl+R, Ctrl+Shift+I 등)은 브라우저 기본 동작 허용
             if key.starts_with("F") || event.ctrl_key() || event.alt_key() || event.meta_key() {
                 // 피아노 앱에서 처리하지 않는 기능키는 기본 동작 유지
-                console::log_1(&format!("브라우저 기능키 감지(키업): {}", key).into());
+                console_log!("브라우저 기능키 감지(키업): {}", key);
                 // 단, 피아노 앱에서 사용하는 키는 처리
                 link_up.send_message(PianoMsg::KeyboardKeyUp(key));
                 return;
@@ -2023,14 +2048,14 @@ impl PianoKeyboard {
             event.prevent_default();
             event.stop_propagation();
             
-            console::log_1(&format!("Key up: {}", key).into());
+            console_log!("Key up: {}", key);
             
             // 세트 키(1-9, 0)인 경우
             let is_set_key = matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "0");
             
             if is_set_key {
                 let set_idx = if key == "0" { 9 } else { key.parse::<usize>().unwrap_or(0) - 1 };
-                console::log_1(&format!("세트 키 떼기: 세트 {}", set_idx).into());
+                console_log!("세트 키 떼기: 세트 {}", set_idx);
                 
                 // 먼저 KeyboardKeyUp 메시지를 보내 키 상태 업데이트
                 link_up.send_message(PianoMsg::KeyboardKeyUp(key.clone()));

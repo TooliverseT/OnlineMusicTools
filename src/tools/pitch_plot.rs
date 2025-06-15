@@ -8,6 +8,20 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, MouseEvent};
 use yew::prelude::*;
 use gloo::events::EventListener;
+use gloo::utils::window;
+
+// 조건부 로그 매크로 정의
+#[cfg(debug_assertions)]
+macro_rules! console_log {
+    ($($arg:tt)*) => {
+        web_sys::console::log_1(&format!($($arg)*).into());
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! console_log {
+    ($($arg:tt)*) => {};
+}
 
 #[derive(Properties, PartialEq)]
 pub struct PitchPlotProps {
@@ -84,7 +98,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             frozen_time.set(Some(last_time));
                         }
                         
-                        web_sys::console::log_1(&"[PitchPlot] 화면 상태 고정됨".into());
+                        console_log!("[PitchPlot] 화면 상태 고정됨");
                     }
                 } else if !*is_frozen || *is_recording || *is_playing {
                     // 고정 상태가 해제되면 저장된 고정 상태도 초기화
@@ -92,7 +106,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         frozen_history.set(None);
                         frozen_current_freq.set(0.0);
                         frozen_time.set(None);
-                        web_sys::console::log_1(&"[PitchPlot] 화면 상태 고정 해제됨".into());
+                        console_log!("[PitchPlot] 화면 상태 고정 해제됨");
                     }
                 }
                 
@@ -112,7 +126,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 let handler = move |e: &web_sys::Event| {
                     // playback 선 초기화 (0초로)
                     last_playback_time.set(Some(0.0));
-                    web_sys::console::log_1(&"[PitchPlot] playbackReset 이벤트 수신: 재생 위치를 0초로 초기화".into());
+                    console_log!("[PitchPlot] playbackReset 이벤트 수신: 재생 위치를 0초로 초기화");
                 };
                 
                 // 이벤트 핸들러 등록
@@ -156,9 +170,9 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                                             if *auto_follow {
                                                 // 고정 시간 범위가 없는 경우에만 자동 따라가기 적용
                                                 if fixed_time_range.is_none() {
-                                                    web_sys::console::log_1(&format!("[PitchPlot] 녹음 시간 업데이트 (auto_follow 모드): {:.2}s", time).into());
+                                                    console_log!("녹음 시간 업데이트 (auto_follow 모드): {:.2}s", time);
                                                 } else {
-                                                    web_sys::console::log_1(&format!("[PitchPlot] 녹음 시간 업데이트 (고정 시간 범위 모드): {:.2}s", time).into());
+                                                    console_log!("녹음 시간 업데이트 (고정 시간 범위 모드): {:.2}s", time);
                                                 }
                                             }
                                         }
@@ -203,7 +217,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
 
             // 드래그 시작시 자동 따라가기 비활성화 (녹음 모드에서도 마찬가지)
             auto_follow.set(false);
-            web_sys::console::log_1(&"[PitchPlot] 드래그 시작: 자동 따라가기 비활성화".into());
+            console_log!("[PitchPlot] 드래그 시작: 자동 따라가기 비활성화");
 
             // 현재 차트에 표시되는 x축 범위 그대로 사용
             if let Some((x_min, x_max)) = *current_x_range {
@@ -211,8 +225,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 fixed_time_range.set(Some((x_min, x_max)));
                 
                 let window_size = x_max - x_min;
-                web_sys::console::log_1(&format!("[PitchPlot] 드래그 시작: 현재 차트 범위 그대로 고정: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
-                    x_min, x_max, window_size).into());
+                console_log!("[PitchPlot] 드래그 시작: 현재 차트 범위 그대로 고정: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
+                    x_min, x_max, window_size);
             } else {
                 // 현재 범위 정보가 없는 경우 (예외 처리)
                 let window_duration = 30.0;
@@ -250,8 +264,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 
                 // 창 크기 확인
                 let window_size = adjusted_max - adjusted_min;
-                web_sys::console::log_1(&format!("[PitchPlot] 드래그 시작: 범위 정보 없어 새로 계산: {:.2}s-{:.2}s, 창 크기: {:.2}s, 현재 시간: {:.2}s", 
-                    adjusted_min, adjusted_max, window_size, current_time).into());
+                console_log!("[PitchPlot] 드래그 시작: 범위 정보 없어 새로 계산: {:.2}s-{:.2}s, 창 크기: {:.2}s, 현재 시간: {:.2}s", 
+                    adjusted_min, adjusted_max, window_size, current_time);
             }
         })
     };
@@ -310,13 +324,13 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         let adjusted_max = max_allowed;
                         let adjusted_min = (adjusted_max - window_duration).max(0.0); // 최소값은 0.0 이상으로 유지
                         fixed_time_range.set(Some((adjusted_min, adjusted_max)));
-                        web_sys::console::log_1(&format!("[PitchPlot] 드래그 최대 범위 제한: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
-                            adjusted_min, adjusted_max, window_duration).into());
+                        console_log!("[PitchPlot] 드래그 최대 범위 제한: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
+                            adjusted_min, adjusted_max, window_duration);
                     } else {
                         // 정상 범위 내에서 이동
                         fixed_time_range.set(Some((new_min, new_max)));
-                        web_sys::console::log_1(&format!("[PitchPlot] 드래그 중: 새 시간 범위 {:.2}s-{:.2}s, 창 크기: {:.2}s, dx={}, dt={:.3}s", 
-                            new_min, new_max, window_duration, dx, dt).into());
+                        console_log!("[PitchPlot] 드래그 중: 새 시간 범위 {:.2}s-{:.2}s, 창 크기: {:.2}s, dx={}, dt={:.3}s", 
+                            new_min, new_max, window_duration, dx, dt);
                     }
                 }
 
@@ -380,7 +394,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
             auto_follow.set(true); // 자동 따라가기 다시 활성화
             fixed_time_range.set(None); // 고정 시간 범위 해제
             
-            web_sys::console::log_1(&"[PitchPlot] 더블클릭: 자동 따라가기 모드로 복귀, 고정 시간 범위 해제".into());
+            console_log!("[PitchPlot] 더블클릭: 자동 따라가기 모드로 복귀, 고정 시간 범위 해제");
         })
     };
 
@@ -454,7 +468,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                 if let Some(time) = playback_time {
                     // 재생 시간 또는 시크 시간이 있으면 항상 업데이트 (재생 중이든 정지 상태든)
                     last_playback_time.set(Some(time));
-                    web_sys::console::log_1(&format!("[PitchPlot] 재생/시크 시간 업데이트: {:.2}s", time).into());
+                    console_log!("재생/시크 시간 업데이트: {:.2}s", time);
                 } else if is_playing {
                     // 재생 중인데 시간이 없는 경우는 0으로 초기화 (예외 처리)
                     last_playback_time.set(Some(0.0));
@@ -535,19 +549,17 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             let center = (min + max) / 2.0;
                             let adjusted_min = (center - window_duration / 2.0).max(0.0);
                             let adjusted_max = adjusted_min + window_duration;
-                            web_sys::console::log_1(&format!("[PitchPlot] 드래그 모드: 창 크기 보정 {:.2}s->{:.2}s", window_size, window_duration).into());
+                            console_log!("드래그 모드: 창 크기 보정 {:.2}s->{:.2}s", window_size, window_duration);
                             (adjusted_min, adjusted_max)
                         } else {
-                            web_sys::console::log_1(&format!("[PitchPlot] 드래그 모드: 고정 시간 범위 사용 {:.2}s-{:.2}s", min, max).into());
+                            console_log!("드래그 모드: 고정 시간 범위 사용 {:.2}s-{:.2}s", min, max);
                             (min, max)
                         }
                     } else if is_recording && *auto_follow {
                         // 자동 따라가기 + 녹음 모드: 현재 녹음 시간을 중심으로 표시
                         let recording_time = *current_recording_time;
-                        let history_end = history.back().map(|(t, _)| *t).unwrap_or(0.0);
-                        
-                        web_sys::console::log_1(&format!("[PitchPlot] 녹음 모드 차트 범위 계산 (auto_follow): 시간={:.2}s, 히스토리 끝={:.2}s", 
-                            recording_time, history_end).into());
+                        console_log!("녹음 모드 차트 범위 계산 (auto_follow): 시간={:.2}s, 히스토리 끝={:.2}s", 
+                            recording_time, history_duration);
                         
                         // 일정한 창 크기(window_duration)를 유지하면서 녹음 시간에 따라 이동
                         if recording_time < window_duration / 2.0 {
@@ -560,8 +572,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             let proposed_min = (recording_time - window_position).max(0.0); // 최소값 0으로 제한
                             let proposed_max = proposed_min + window_duration; // 창 크기 유지
                             
-                            web_sys::console::log_1(&format!("[PitchPlot] 녹음 모드 창 위치: 녹음시간={:.2}s, 범위={:.2}s-{:.2}s, 창크기={:.2}s", 
-                                recording_time, proposed_min, proposed_max, window_duration).into());
+                            console_log!("녹음 모드 창 위치: 녹음시간={:.2}s, 범위={:.2}s-{:.2}s, 창크기={:.2}s", 
+                                recording_time, proposed_min, proposed_max, window_duration);
                             
                             (proposed_min, proposed_max)
                         }
@@ -569,7 +581,7 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                         // 자동 따라가기 + 재생 모드: 재생 시간 주변으로 표시
                         let display_time = playback_time.or_else(|| *last_playback_time).unwrap_or(0.0);
                         
-                        web_sys::console::log_1(&format!("[PitchPlot] 재생 모드 차트 범위 계산 (auto_follow): 시간={:.2}s", display_time).into());
+                        console_log!("재생 모드 차트 범위 계산 (auto_follow): 시간={:.2}s", display_time);
                         
                         if display_time < window_duration / 2.0 {
                             (0.0, window_duration)
@@ -579,8 +591,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             let proposed_min = (display_time - window_position).max(0.0); // 최소값 0으로 제한
                             let proposed_max = proposed_min + window_duration; // 창 크기 유지
                             
-                            web_sys::console::log_1(&format!("[PitchPlot] 재생 모드 창 위치: 재생시간={:.2}s, 범위={:.2}s-{:.2}s, 창크기={:.2}s", 
-                                display_time, proposed_min, proposed_max, window_duration).into());
+                            console_log!("재생 모드 창 위치: 재생시간={:.2}s, 범위={:.2}s-{:.2}s, 창크기={:.2}s", 
+                                display_time, proposed_min, proposed_max, window_duration);
                                 
                             (proposed_min, proposed_max)
                         }
@@ -852,25 +864,25 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                     let current_time = if is_recording {
                         // 녹음 중이면 현재 녹음 시간 상태 사용 (auto_follow 상태와 무관)
                         let time = *current_recording_time;
-                        web_sys::console::log_1(&format!("[PitchPlot] Recording time: {:.2}s, auto_follow: {}, x_range: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
-                            time, *auto_follow, x_min, x_max, x_max - x_min).into());
+                        console_log!("Recording time: {:.2}s, auto_follow: {}, x_range: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
+                            time, *auto_follow, x_min, x_max, x_max - x_min);
                         time
                     } else if is_playing {
                         // 재생 중이면 현재 playback_time 사용
                         let time = playback_time.unwrap_or_else(|| history.back().map(|(t, _)| *t).unwrap_or(0.0));
-                        web_sys::console::log_1(&format!("[PitchPlot] Playback time: {:.2}s, is_playing: {}, x_range: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
-                            time, is_playing, x_min, x_max, x_max - x_min).into());
+                        console_log!("Playback time: {:.2}s, is_playing: {}, x_range: {:.2}s-{:.2}s, 창 크기: {:.2}s", 
+                            time, is_playing, x_min, x_max, x_max - x_min);
                         time
                     } else if let Some(time) = *last_playback_time {
                         // 일시 정지 상태면 마지막 재생 시간 사용
-                        web_sys::console::log_1(&format!("[PitchPlot] Paused at time: {:.2}s, x_range: {:.2}s-{:.2}s", 
-                            time, x_min, x_max).into());
+                        console_log!("Paused at time: {:.2}s, x_range: {:.2}s-{:.2}s", 
+                            time, x_min, x_max);
                         time
                     } else {
                         // 그 외에는 히스토리의 마지막 시간 사용
                         let time = history.back().map(|(t, _)| *t).unwrap_or(0.0);
-                        web_sys::console::log_1(&format!("[PitchPlot] History time: {:.2}s, x_range: {:.2}s-{:.2}s", 
-                            time, x_min, x_max).into());
+                        console_log!("History time: {:.2}s, x_range: {:.2}s-{:.2}s", 
+                            time, x_min, x_max);
                         time
                     };
 
@@ -986,8 +998,8 @@ pub fn pitch_plot(props: &PitchPlotProps) -> Html {
                             .unwrap();
                         
                         // 로그 출력
-                        web_sys::console::log_1(&format!("차트 모드: 재생 - 시간: {:.2}s, 주파수: {:.2}Hz", 
-                            playback_time.unwrap_or(0.0), current_freq).into());
+                        console_log!("차트 모드: 재생 - 시간: {:.2}s, 주파수: {:.2}Hz", 
+                            playback_time.unwrap_or(0.0), current_freq);
                     } else if last_playback_time.is_some() && !is_recording {
                         // 녹음 중이 아니고 일시 정지 모드일 때만 텍스트 표시
                         let style = TextStyle::from(("Lexend", 15).into_font())
